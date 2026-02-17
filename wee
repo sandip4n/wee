@@ -224,8 +224,8 @@ def main() -> int:
     atexit.register(wee__remote_wipe)
 
     parser = argparse.ArgumentParser()
-    parser.add_argument("--mods", metavar="LIST", type=str)
-    parser.add_argument("name", metavar="NAME", type=str)
+    parser.add_argument("--mods", "-m", metavar="LIST", type=str, help="guest mods")
+    parser.add_argument("name", metavar="NAME", type=str, help="guest name")
     args = parser.parse_args()
 
     if args.mods:
