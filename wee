@@ -1,0 +1,197 @@
+#!/usr/bin/env python3
+# SPDX-License-Identifier: MIT
+
+import argparse
+import pathlib
+import shutil
+import subprocess
+import sys
+import urllib.parse
+import urllib.request
+
+import platformdirs
+import tomllib
+
+wee__remote_pool = []
+
+
+def wee__remote_stow(path):
+    print("info: fetching " + path)
+    path, _ = urllib.request.urlretrieve(path)
+    wee__remote_pool.append(path)
+    return path
+
+
+def wee__remote_drop(path):
+    print("info: removing " + path)
+    pathlib.Path(path).unlink()
+
+
+def wee__remote_wipe():
+    any(wee__remote_drop(path) for path in wee__remote_pool)
+    wee__remote_pool.clear()
+
+
+def wee__remote_path(path):
+    link = urllib.parse.urlparse(path)
+    if link.scheme in ("http", "https"):
+        path = wee__remote_stow(path)
+
+    return path
+
+
+def wee__config_load():
+    file = platformdirs.user_config_path("wee") / "guests.toml"
+    file.parent.mkdir(parents=True, exist_ok=True)
+    if not file.exists():
+        file.touch()
+
+    return tomllib.loads(file.read_text())
+
+
+def wee__config_read(name, mods=None):
+    data = wee__config_load()
+    spec = next((data[key] for key in data.keys() if key == name), None)
+    if not spec:
+        sys.exit("error: name not found")
+
+    if not "mods" in spec.keys():
+        spec["mods"] = {}
+
+    if mods:
+        if not set(mods).issubset(spec["mods"].keys()):
+            sys.exit("error: one or more mods are not valid")
+
+        mods = [opts for name, opts in spec["mods"].items() if name in mods]
+        any(spec.update(opts) for opts in mods)
+
+    if not "cpu" in spec.keys():
+        spec["cpu"] = {}
+    if not "model" in spec["cpu"].keys():
+        spec["cpu"]["model"] = "host"
+    if not "flags" in spec["cpu"].keys():
+        spec["cpu"]["flags"] = []
+
+    if not "smp" in spec.keys():
+        sys.exit("error: bad config, 'smp' is not set")
+    elif not isinstance(spec["smp"], int):
+        sys.exit("error: bad config, 'smp' is not valid")
+
+    if not "mem" in spec.keys():
+        sys.exit("error: bad config, 'mem' is not set")
+    if not "size" in spec["mem"].keys():
+        sys.exit("error: bad config, 'mem.size' is not set")
+    elif not isinstance(spec["mem"]["size"], int):
+        sys.exit("error: bad config, 'mem.size' is not valid")
+    if not "unit" in spec["mem"].keys():
+        spec["mem"]["unit"] = "G"
+    elif not spec["mem"]["unit"] in ("M", "G"):
+        sys.exit("error: bad config, 'mem.unit' is not valid")
+
+    if not "disk" in spec.keys():
+        sys.exit("error: bad config, 'disk' is not set")
+
+    spec["disk"] = pathlib.Path(spec["disk"]).expanduser().resolve()
+    if not spec["disk"].exists() or not spec["disk"].is_file():
+        sys.exit("error: bad config, 'disk' is not valid")
+
+    if "bios" in spec.keys():
+        spec["bios"] = pathlib.Path(spec["bios"]).expanduser().resolve()
+        if not spec["bios"].exists() or not spec["bios"].is_file():
+            sys.exit("error: bad config, 'bios' is not valid")
+
+    if "kernel" in spec.keys():
+        spec["kernel"] = (
+            pathlib.Path(wee__remote_path(spec["kernel"]))
+            .expanduser()
+            .resolve()
+        )
+
+        if not spec["kernel"].exists() or not spec["kernel"].is_file():
+            sys.exit("error: bad config, 'kernel' is not valid")
+
+    if "initrd" in spec.keys():
+        spec["initrd"] = (
+            pathlib.Path(wee__remote_path(spec["initrd"]))
+            .expanduser()
+            .resolve()
+        )
+
+        if not spec["initrd"].exists() or not spec["initrd"].is_file():
+            sys.exit("error: bad config, 'initrd' is not valid")
+
+    if not "qemu" in spec.keys():
+        spec["qemu"] = shutil.which("qemu-system-x86_64")
+
+    if not spec["qemu"]:
+        sys.exit("error: bad config, 'qemu' is not set")
+
+    spec["qemu"] = pathlib.Path(spec["qemu"]).expanduser().resolve()
+    if not spec["qemu"].exists() or not spec["qemu"].is_file():
+        sys.exit("error: bad config, 'qemu' is not valid")
+
+    return spec
+
+
+def wee__launch(name, mods):
+    spec = wee__config_read(name, mods)
+    if not spec:
+        return
+
+    comm = [
+        str(spec["qemu"]),
+        "-enable-kvm",
+        "-cpu",
+        ",".join([spec["cpu"]["model"]] + spec["cpu"]["flags"]),
+        "-smp",
+        str(spec["smp"]),
+        "-m",
+        str(spec["mem"]["size"]) + spec["mem"]["unit"],
+    ]
+
+    if "bios" in spec.keys():
+        comm.extend(["-bios", str(spec["bios"])])
+    if "kernel" in spec.keys():
+        comm.extend(["-kernel", str(spec["kernel"])])
+    if "initrd" in spec.keys():
+        comm.extend(["-initrd", str(spec["initrd"])])
+    if "append" in spec.keys():
+        comm.extend(["-append", spec["append"]])
+
+    comm.extend(
+        [
+            "-drive",
+            "file=" + str(spec["disk"]) + ",if=none,id=disk",
+            "-device",
+            "virtio-blk-pci,drive=disk",
+            "-net",
+            "nic,model=virtio",
+            "-net",
+            "user",
+            "-nographic",
+            "-serial",
+            "mon:stdio",
+        ]
+    )
+
+    with subprocess.Popen(comm, shell=False) as process:
+        process.wait()
+
+    wee__remote_wipe()
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--mods", metavar="LIST", type=str)
+    parser.add_argument("name", metavar="NAME", type=str)
+    args = parser.parse_args()
+
+    if args.mods:
+        args.mods = [mod.strip() for mod in args.mods.split(",")]
+
+    wee__launch(args.name, args.mods if args.mods else None)
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
