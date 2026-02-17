@@ -22,6 +22,7 @@ options.
 | `append`      | String  |         | Y        | Kernel command line                      |
 | `qemu`        | String  |         | Y        | QEMU path                                |
 | `sudo`        | Boolean | `false` | Y        | Start guest with `sudo`                  |
+| `extras`      | Array   | `[]`    | Y        | Extras to be added as-is to command line |
 
 ## Usage
 

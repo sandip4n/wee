@@ -161,6 +161,13 @@ def wee__config_read(name, mods=None):
     elif not isinstance(spec["sudo"], bool):
         sys.exit("error: bad config, 'sudo' is not valid")
 
+    if not "extras" in spec.keys():
+        spec["extras"] = []
+    elif not isinstance(spec["extras"], list) or any(
+        not isinstance(option, str) for option in spec["extras"]
+    ):
+        sys.exit("error: bad config, 'extras' is not valid")
+
     return spec
 
 
@@ -190,6 +197,8 @@ def wee__launch(name, mods):
         comm.extend(["-initrd", str(spec["initrd"])])
     if "append" in spec.keys():
         comm.extend(["-append", spec["append"]])
+    if "extras" in spec.keys():
+        comm.extend(spec["extras"])
 
     comm.extend(
         [
