@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: MIT
 
 import argparse
+import atexit
 import pathlib
 import shutil
 import subprocess
@@ -177,10 +178,10 @@ def wee__launch(name, mods):
     with subprocess.Popen(comm, shell=False) as process:
         process.wait()
 
-    wee__remote_wipe()
-
 
 def main() -> int:
+    atexit.register(wee__remote_wipe)
+
     parser = argparse.ArgumentParser()
     parser.add_argument("--mods", metavar="LIST", type=str)
     parser.add_argument("name", metavar="NAME", type=str)
