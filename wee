@@ -68,10 +68,18 @@ def wee__config_read(name, mods=None):
 
     if not "cpu" in spec.keys():
         spec["cpu"] = {}
+
     if not "model" in spec["cpu"].keys():
         spec["cpu"]["model"] = "host"
+    elif not isinstance(spec["cpu"]["model"], str):
+        sys.exit("error: bad config, 'cpu.model' is not valid")
+
     if not "flags" in spec["cpu"].keys():
         spec["cpu"]["flags"] = []
+    elif not isinstance(spec["cpu"]["flags"], list) or any(
+        not isinstance(flag, str) for flag in spec["cpu"]["flags"]
+    ):
+        sys.exit("error: bad config, 'cpu.flags' is not valid")
 
     if not "smp" in spec.keys():
         sys.exit("error: bad config, 'smp' is not set")
@@ -91,17 +99,25 @@ def wee__config_read(name, mods=None):
 
     if not "disk" in spec.keys():
         sys.exit("error: bad config, 'disk' is not set")
+    elif not isinstance(spec["disk"], str):
+        sys.exit("error: bad config, 'disk' is not valid")
 
     spec["disk"] = pathlib.Path(spec["disk"]).expanduser().resolve()
     if not spec["disk"].exists() or not spec["disk"].is_file():
         sys.exit("error: bad config, 'disk' is not valid")
 
     if "bios" in spec.keys():
+        if not isinstance(spec["bios"], str):
+            sys.exit("error: bad config, 'bios' is not valid")
+
         spec["bios"] = pathlib.Path(spec["bios"]).expanduser().resolve()
         if not spec["bios"].exists() or not spec["bios"].is_file():
             sys.exit("error: bad config, 'bios' is not valid")
 
     if "kernel" in spec.keys():
+        if not isinstance(spec["kernel"], str):
+            sys.exit("error: bad config, 'kernel' is not valid")
+
         spec["kernel"] = (
             pathlib.Path(wee__remote_path(spec["kernel"]))
             .expanduser()
@@ -112,6 +128,9 @@ def wee__config_read(name, mods=None):
             sys.exit("error: bad config, 'kernel' is not valid")
 
     if "initrd" in spec.keys():
+        if not isinstance(spec["initrd"], str):
+            sys.exit("error: bad config, 'initrd' is not valid")
+
         spec["initrd"] = (
             pathlib.Path(wee__remote_path(spec["initrd"]))
             .expanduser()
@@ -121,8 +140,14 @@ def wee__config_read(name, mods=None):
         if not spec["initrd"].exists() or not spec["initrd"].is_file():
             sys.exit("error: bad config, 'initrd' is not valid")
 
+    if "append" in spec.keys():
+        if not isinstance(spec["append"], str):
+            sys.exit("error: bad config, 'append' is not valid")
+
     if not "qemu" in spec.keys():
         spec["qemu"] = shutil.which("qemu-system-x86_64")
+    elif not isinstance(spec["qemu"], str):
+        sys.exit("error: bad config, 'qemu' is not valid")
 
     if not spec["qemu"]:
         sys.exit("error: bad config, 'qemu' is not set")
