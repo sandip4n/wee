@@ -21,6 +21,7 @@ options.
 | `initrd`      | String  |         | Y        | Initrd path or URL (use PXE boot initrd) |
 | `append`      | String  |         | Y        | Kernel command line                      |
 | `qemu`        | String  |         | Y        | QEMU path                                |
+| `sudo`        | Boolean | `false` | Y        | Start guest with `sudo`                  |
 
 ## Usage
 

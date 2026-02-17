@@ -156,6 +156,11 @@ def wee__config_read(name, mods=None):
     if not spec["qemu"].exists() or not spec["qemu"].is_file():
         sys.exit("error: bad config, 'qemu' is not valid")
 
+    if not "sudo" in spec.keys():
+        spec["sudo"] = False
+    elif not isinstance(spec["sudo"], bool):
+        sys.exit("error: bad config, 'sudo' is not valid")
+
     return spec
 
 
@@ -175,6 +180,8 @@ def wee__launch(name, mods):
         str(spec["mem"]["size"]) + spec["mem"]["unit"],
     ]
 
+    if spec["sudo"]:
+        comm.insert(0, "sudo")
     if "bios" in spec.keys():
         comm.extend(["-bios", str(spec["bios"])])
     if "kernel" in spec.keys():
