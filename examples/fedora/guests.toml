@@ -1,0 +1,39 @@
+[fedora]
+smp = 8
+mem.size = 8
+mem.unit = "G"
+bios = "/usr/share/qemu/OVMF.fd"
+disk = "fedora-x86_64.qcow2"
+
+[fedora.mods.install]
+kernel = "https://download.fedoraproject.org/pub/fedora/linux/releases/43/Server/x86_64/os/images/pxeboot/vmlinuz"
+initrd = "https://download.fedoraproject.org/pub/fedora/linux/releases/43/Server/x86_64/os/images/pxeboot/initrd.img"
+append = "inst.stage2=https://download.fedoraproject.org/pub/fedora/linux/releases/43/Server/x86_64/os/ ip=dhcp console=ttyS0,115200"
+extras = [ "-no-reboot" ]
+
+[fedora.mods.sev]
+sudo = true
+extras = [
+	"-object",
+	"sev-guest,id=sev0,cbitpos=51,reduced-phys-bits=1",
+	"-machine",
+	"confidential-guest-support=sev0"
+]
+
+[fedora.mods.sev-es]
+sudo = true
+extras = [
+	"-object",
+	"sev-guest,id=sev0,cbitpos=51,reduced-phys-bits=1,policy=0x5",
+	"-machine",
+	"confidential-guest-support=sev0"
+]
+
+[fedora.mods.sev-snp]
+sudo = true
+extras = [
+	"-object",
+	"sev-snp-guest,id=sev0,cbitpos=51,reduced-phys-bits=1",
+	"-machine",
+	"confidential-guest-support=sev0"
+]

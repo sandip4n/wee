@@ -82,3 +82,5 @@ wee --mods no-pmu foo
 wee --mods install-fedora,small foo
 wee --mods no-pmu,large foo
 ```
+
+More examples can be found [here](examples/)
