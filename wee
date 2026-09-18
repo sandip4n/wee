@@ -17,15 +17,19 @@ import tomllib
 wee__remote_pool = []
 
 
+def wee__info(text):
+    print("info: " + text, file=sys.stderr)
+
+
 def wee__remote_stow(path):
-    print("info: fetching " + path)
+    wee__info("fetching " + path)
     path, _ = urllib.request.urlretrieve(path)
     wee__remote_pool.append(path)
     return path
 
 
 def wee__remote_drop(path):
-    print("info: removing " + path)
+    wee__info("removing " + path)
     pathlib.Path(path).unlink()
 
 
