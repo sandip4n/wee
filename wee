@@ -6,6 +6,7 @@ import atexit
 import copy
 import difflib
 import pathlib
+import shlex
 import shutil
 import subprocess
 import sys
@@ -49,9 +50,12 @@ def wee__remote_wipe():
     wee__remote_pool.clear()
 
 
+def wee__remote_link(path):
+    return urllib.parse.urlparse(path).scheme in ("http", "https")
+
+
 def wee__remote_path(path):
-    link = urllib.parse.urlparse(path)
-    if link.scheme in ("http", "https"):
+    if wee__remote_link(path):
         path = wee__remote_stow(path)
 
     return path
@@ -122,7 +126,21 @@ def wee__config_mods(name):
     return 0
 
 
-def wee__config_read(name, mods=None):
+def wee__config_image(spec, key, show):
+    if not isinstance(spec[key], str):
+        sys.exit("error: bad config, '" + key + "' is not valid")
+
+    if show and wee__remote_link(spec[key]):
+        return
+
+    path = pathlib.Path(wee__remote_path(spec[key])).expanduser().resolve()
+    if not path.exists() or not path.is_file():
+        sys.exit("error: bad config, '" + key + "' is not valid")
+
+    spec[key] = path
+
+
+def wee__config_read(name, mods=None, show=False):
     data = wee__config_load()
     spec = next((data[key] for key in data.keys() if key == name), None)
     if not spec:
@@ -197,30 +215,10 @@ def wee__config_read(name, mods=None):
             sys.exit("error: bad config, 'bios' is not valid")
 
     if "kernel" in spec.keys():
-        if not isinstance(spec["kernel"], str):
-            sys.exit("error: bad config, 'kernel' is not valid")
-
-        spec["kernel"] = (
-            pathlib.Path(wee__remote_path(spec["kernel"]))
-            .expanduser()
-            .resolve()
-        )
-
-        if not spec["kernel"].exists() or not spec["kernel"].is_file():
-            sys.exit("error: bad config, 'kernel' is not valid")
+        wee__config_image(spec, "kernel", show)
 
     if "initrd" in spec.keys():
-        if not isinstance(spec["initrd"], str):
-            sys.exit("error: bad config, 'initrd' is not valid")
-
-        spec["initrd"] = (
-            pathlib.Path(wee__remote_path(spec["initrd"]))
-            .expanduser()
-            .resolve()
-        )
-
-        if not spec["initrd"].exists() or not spec["initrd"].is_file():
-            sys.exit("error: bad config, 'initrd' is not valid")
+        wee__config_image(spec, "initrd", show)
 
     if "append" in spec.keys():
         if not isinstance(spec["append"], str):
@@ -253,8 +251,8 @@ def wee__config_read(name, mods=None):
     return spec
 
 
-def wee__launch(name, mods):
-    spec = wee__config_read(name, mods)
+def wee__launch(name, mods, show=False):
+    spec = wee__config_read(name, mods, show)
     if not spec:
         return 1
 
@@ -298,6 +296,10 @@ def wee__launch(name, mods):
         ]
     )
 
+    if show:
+        print(shlex.join(comm))
+        return 0
+
     with subprocess.Popen(comm, shell=False) as process:
         return process.wait()
 
@@ -319,6 +321,9 @@ def main() -> int:
     boot.add_argument(
         "--mods", "-m", metavar="LIST", type=str, help="guest mods"
     )
+    boot.add_argument(
+        "--comm", "-c", action="store_true", help="show command line"
+    )
     boot.add_argument("name", metavar="GUEST", type=str, help="guest name")
 
     args = parser.parse_args()
@@ -336,7 +341,7 @@ def main() -> int:
     if args.mods:
         args.mods = [mod.strip() for mod in args.mods.split(",")]
 
-    return wee__launch(args.name, args.mods if args.mods else None)
+    return wee__launch(args.name, args.mods if args.mods else None, args.comm)
 
 
 if __name__ == "__main__":

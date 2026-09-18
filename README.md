@@ -101,4 +101,10 @@ wee list
 wee mods foo
 ```
 
+The command line for a guest can be shown without starting it.
+
+```
+wee exec --comm --mods no-pmu foo
+```
+
 More examples can be found [here](examples/)
