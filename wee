@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: MIT
 
+"""Launch basic x86-64 KVM guests for development use."""
+
 import argparse
 import atexit
 import copy
@@ -15,11 +17,11 @@ import shlex
 import shutil
 import subprocess
 import sys
+import tomllib
 import urllib.parse
 import urllib.request
 
 import platformdirs
-import tomllib
 
 wee__remote_pool = []
 
@@ -39,10 +41,12 @@ WEE__LIST_WIDTH = 64
 
 
 def wee__info(text):
+    """Report progress without disturbing the command output."""
     print("info: " + text, file=sys.stderr)
 
 
 def wee__near(name, names):
+    """Suggest the closest valid spellings of a mistyped name."""
     near = difflib.get_close_matches(name, list(names), 3)
     if not near:
         return ""
@@ -51,6 +55,7 @@ def wee__near(name, names):
 
 
 def wee__remote_stow(path):
+    """Fetch a remote image into temporary storage for this run."""
     wee__info("fetching " + path)
     path, _ = urllib.request.urlretrieve(path)
     wee__remote_pool.append(path)
@@ -58,20 +63,24 @@ def wee__remote_stow(path):
 
 
 def wee__remote_drop(path):
+    """Discard one temporary image."""
     wee__info("removing " + path)
     pathlib.Path(path).unlink()
 
 
 def wee__remote_wipe():
+    """Discard every temporary image kept for this run."""
     any(wee__remote_drop(path) for path in wee__remote_pool)
     wee__remote_pool.clear()
 
 
 def wee__remote_link(path):
+    """Tell whether a location has to be fetched over the network."""
     return urllib.parse.urlparse(path).scheme in ("http", "https")
 
 
 def wee__remote_path(path):
+    """Resolve a location to something locally readable."""
     if wee__remote_link(path):
         path = wee__remote_stow(path)
 
@@ -79,9 +88,8 @@ def wee__remote_path(path):
 
 
 def wee__cpuid(leaf):
-    code = bytes.fromhex(
-        "53" "89f8" "31c9" "0fa2" "8906" "895e04" "894e08" "89560c" "5b" "c3"
-    )
+    """Read one processor information leaf."""
+    code = bytes.fromhex("53 89f8 31c9 0fa2 8906 895e04 894e08 89560c 5b c3")
 
     page = mmap.mmap(
         -1, len(code), prot=mmap.PROT_READ | mmap.PROT_WRITE | mmap.PROT_EXEC
@@ -104,15 +112,17 @@ def wee__cpuid(leaf):
 
 
 def wee__sev_bits():
+    """Report the encryption bit and the address bits it costs."""
     try:
         ebx = wee__cpuid(WEE__SEV_LEAF)[1]
-    except Exception:
+    except (OSError, ValueError):
         return None
 
     return ebx & 0x3F, (ebx >> 6) & 0x3F
 
 
 def wee__sev_types():
+    """Report which confidential guest types the host offers."""
     try:
         node = os.open("/dev/kvm", os.O_RDWR | os.O_CLOEXEC)
     except OSError:
@@ -129,6 +139,7 @@ def wee__sev_types():
 
 
 def wee__sev_why(knob):
+    """Explain why a confidential guest type is unavailable."""
     file = pathlib.Path(WEE__SEV_PARAMS) / knob
     if not file.exists():
         return "'kvm_amd' has no SEV support"
@@ -139,6 +150,7 @@ def wee__sev_why(knob):
 
 
 def wee__qmp(qemu, cmds):
+    """Ask a QEMU build a set of questions and collect the answers."""
     comm = [str(qemu), "-machine", "none", "-display", "none", "-qmp", "stdio"]
     send = [{"execute": "qmp_capabilities"}] + cmds + [{"execute": "quit"}]
 
@@ -149,6 +161,7 @@ def wee__qmp(qemu, cmds):
             capture_output=True,
             text=True,
             timeout=30,
+            check=False,
         )
     except (OSError, subprocess.SubprocessError):
         return []
@@ -160,13 +173,14 @@ def wee__qmp(qemu, cmds):
         except json.JSONDecodeError:
             continue
 
-        if "return" in data.keys() or "error" in data.keys():
+        if "return" in data or "error" in data:
             outs.append(data)
 
     return outs[1:]
 
 
 def wee__qom_props(qemu, kind):
+    """Report the properties a QEMU build accepts for an object."""
     args = {"typename": kind}
     cmds = [{"execute": "qom-list-properties", "arguments": args}]
     outs = wee__qmp(qemu, cmds)
@@ -177,6 +191,7 @@ def wee__qom_props(qemu, kind):
 
 
 def wee__cpu_fail(kind, name, names, qemu):
+    """Reject an unknown processor setting and suggest alternatives."""
     sys.exit(
         "error: bad config, '"
         + name
@@ -190,6 +205,7 @@ def wee__cpu_fail(kind, name, names, qemu):
 
 
 def wee__cpu_setup(spec):
+    """Check the requested processor settings against the build."""
     model = spec["cpu"]["model"]
     args = {"type": "full", "model": {"name": model}}
     outs = wee__qmp(
@@ -204,7 +220,7 @@ def wee__cpu_setup(spec):
         wee__info("unable to query CPU models, skipping check")
         return
 
-    if "error" in outs[0].keys():
+    if "error" in outs[0]:
         names = [item["name"] for item in outs[1].get("return", [])]
         wee__cpu_fail("model", model, names, spec["qemu"])
 
@@ -212,11 +228,12 @@ def wee__cpu_setup(spec):
 
     for flag in spec["cpu"]["flags"]:
         name = flag.lstrip("+-").split("=")[0].replace("_", "-")
-        if not name in props.keys():
-            wee__cpu_fail("flag", name, props.keys(), spec["qemu"])
+        if name not in props:
+            wee__cpu_fail("flag", name, props, spec["qemu"])
 
 
 def wee__sev_value(name, kind, value):
+    """Render one property value the way QEMU expects to read it."""
     if kind == "OnOffAuto":
         if isinstance(value, bool):
             return "on" if value else "off"
@@ -232,11 +249,8 @@ def wee__sev_value(name, kind, value):
     sys.exit("error: bad config, 'sev.props." + name + "' is not valid")
 
 
-def wee__sev_setup(spec):
-    name = spec["sev"]["type"]
-    kind, kvmt_bit, knob = WEE__SEV_KINDS[name]
-    props = spec["sev"]["props"]
-
+def wee__sev_check(name, kvmt_bit, knob):
+    """Refuse a confidential guest the host is unable to run."""
     kvmt = wee__sev_types()
     if kvmt is None:
         wee__info("'/dev/kvm' not readable, skipping capability check")
@@ -255,15 +269,9 @@ def wee__sev_setup(spec):
             + "' not found, memory encryption not enabled by BIOS"
         )
 
-    bits = wee__sev_bits()
-    if bits:
-        props.setdefault("cbitpos", bits[0])
-        props.setdefault("reduced-phys-bits", bits[1])
 
-    for key in ("cbitpos", "reduced-phys-bits"):
-        if not key in props.keys():
-            sys.exit("error: bad config, 'sev.props." + key + "' is not set")
-
+def wee__sev_policy(name, props):
+    """Check the requested policy and add what the type implies."""
     policy = props.get("policy")
     if policy is not None and (
         isinstance(policy, bool) or not isinstance(policy, int)
@@ -283,6 +291,26 @@ def wee__sev_setup(spec):
             "(SNP_POLICY_MASK_RSVD_MBO)"
         )
 
+
+def wee__sev_setup(spec):
+    """Prepare and check the settings of a confidential guest."""
+    name = spec["sev"]["type"]
+    kind, kvmt_bit, knob = WEE__SEV_KINDS[name]
+    props = spec["sev"]["props"]
+
+    wee__sev_check(name, kvmt_bit, knob)
+
+    bits = wee__sev_bits()
+    if bits:
+        props.setdefault("cbitpos", bits[0])
+        props.setdefault("reduced-phys-bits", bits[1])
+
+    for key in ("cbitpos", "reduced-phys-bits"):
+        if key not in props:
+            sys.exit("error: bad config, 'sev.props." + key + "' is not set")
+
+    wee__sev_policy(name, props)
+
     kinds = wee__qom_props(spec["qemu"], kind)
     if not kinds:
         sys.exit(
@@ -293,8 +321,8 @@ def wee__sev_setup(spec):
             + "'"
         )
 
-    for key in props.keys():
-        if not key in kinds.keys():
+    for key in props:
+        if key not in kinds:
             sys.exit(
                 "error: bad config, '"
                 + key
@@ -303,7 +331,7 @@ def wee__sev_setup(spec):
                 + "' in '"
                 + str(spec["qemu"])
                 + "'\n       available: "
-                + ", ".join(sorted(kinds.keys()))
+                + ", ".join(sorted(kinds))
             )
 
     wee__info(
@@ -321,12 +349,13 @@ def wee__sev_setup(spec):
 
 
 def wee__sev_args(spec):
+    """Build the options that make a guest a confidential one."""
     if spec["sev"]["type"] == "none":
         return []
 
     props = spec["sev"]["props"]
     order = ["cbitpos", "reduced-phys-bits"]
-    order += [key for key in props.keys() if not key in order]
+    order += [key for key in props if key not in order]
 
     opts = ["id=sev0"] + [key + "=" + props[key] for key in order]
 
@@ -339,6 +368,7 @@ def wee__sev_args(spec):
 
 
 def wee__config_load():
+    """Read the guest definitions, creating the file if absent."""
     file = platformdirs.user_config_path("wee") / "guests.toml"
     file.parent.mkdir(parents=True, exist_ok=True)
     if not file.exists():
@@ -348,6 +378,7 @@ def wee__config_load():
 
 
 def wee__merge(base, over):
+    """Overlay one set of options onto another, table by table."""
     for key, val in over.items():
         if isinstance(base.get(key), dict) and isinstance(val, dict):
             wee__merge(base[key], val)
@@ -356,6 +387,7 @@ def wee__merge(base, over):
 
 
 def wee__config_flat(table, pre=""):
+    """Flatten nested options into the dotted form used in the file."""
     opts = []
     for key, val in table.items():
         if isinstance(val, dict):
@@ -367,6 +399,7 @@ def wee__config_flat(table, pre=""):
 
 
 def wee__config_show(val):
+    """Render one option value the way it is written in the file."""
     if isinstance(val, bool):
         return "true" if val else "false"
     if isinstance(val, str):
@@ -378,15 +411,17 @@ def wee__config_show(val):
 
 
 def wee__config_list():
-    for guest in wee__config_load().keys():
+    """Print the name of every defined guest."""
+    for guest in wee__config_load():
         print(guest)
 
     return 0
 
 
 def wee__config_mods(name):
+    """Print the mods of a guest and the options each one overrides."""
     data = wee__config_load()
-    if not name in data.keys():
+    if name not in data:
         sys.exit(
             "error: guest '" + name + "' not found" + wee__near(name, data)
         )
@@ -404,6 +439,10 @@ def wee__config_mods(name):
 
 
 def wee__config_image(spec, key, show):
+    """Locate and check one boot image."""
+    if key not in spec:
+        return
+
     if not isinstance(spec[key], str):
         sys.exit("error: bad config, '" + key + "' is not valid")
 
@@ -417,91 +456,105 @@ def wee__config_image(spec, key, show):
     spec[key] = path
 
 
-def wee__config_read(name, mods=None, show=False):
-    data = wee__config_load()
-    spec = next((data[key] for key in data.keys() if key == name), None)
-    if not spec:
-        sys.exit(
-            "error: guest '" + name + "' not found" + wee__near(name, data)
-        )
-
-    if not "mods" in spec.keys():
+def wee__config_process_mods(spec, name, mods):
+    """Apply the selected overrides in the order they were given."""
+    if "mods" not in spec:
         spec["mods"] = {}
 
-    if mods:
-        for mod in mods:
-            if not mod in spec["mods"].keys():
-                sys.exit(
-                    "error: mod '"
-                    + mod
-                    + "' not found in '"
-                    + name
-                    + "'"
-                    + wee__near(mod, spec["mods"])
-                )
+    if not mods:
+        return
 
-        for mod in mods:
-            wee__merge(spec, copy.deepcopy(spec["mods"][mod]))
+    for mod in mods:
+        if mod not in spec["mods"]:
+            sys.exit(
+                "error: mod '"
+                + mod
+                + "' not found in '"
+                + name
+                + "'"
+                + wee__near(mod, spec["mods"])
+            )
 
-    if not "cpu" in spec.keys():
+    for mod in mods:
+        wee__merge(spec, copy.deepcopy(spec["mods"][mod]))
+
+
+def wee__config_process_cpu(spec):
+    """Settle the processor model and the flags applied to it."""
+    if "cpu" not in spec:
         spec["cpu"] = {}
 
-    if not "model" in spec["cpu"].keys():
+    if "model" not in spec["cpu"]:
         spec["cpu"]["model"] = "host"
     elif not isinstance(spec["cpu"]["model"], str):
         sys.exit("error: bad config, 'cpu.model' is not valid")
 
-    if not "flags" in spec["cpu"].keys():
+    if "flags" not in spec["cpu"]:
         spec["cpu"]["flags"] = []
     elif not isinstance(spec["cpu"]["flags"], list) or any(
         not isinstance(flag, str) for flag in spec["cpu"]["flags"]
     ):
         sys.exit("error: bad config, 'cpu.flags' is not valid")
 
-    if not "smp" in spec.keys():
+
+def wee__config_process_smp(spec):
+    """Settle how many processors the guest is given."""
+    if "smp" not in spec:
         sys.exit("error: bad config, 'smp' is not set")
-    elif not isinstance(spec["smp"], int):
+    if not isinstance(spec["smp"], int):
         sys.exit("error: bad config, 'smp' is not valid")
 
-    if not "mem" in spec.keys():
+
+def wee__config_process_mem(spec):
+    """Settle how much memory the guest is given."""
+    if "mem" not in spec:
         sys.exit("error: bad config, 'mem' is not set")
-    if not "size" in spec["mem"].keys():
+
+    if "size" not in spec["mem"]:
         sys.exit("error: bad config, 'mem.size' is not set")
-    elif not isinstance(spec["mem"]["size"], int):
+    if not isinstance(spec["mem"]["size"], int):
         sys.exit("error: bad config, 'mem.size' is not valid")
-    if not "unit" in spec["mem"].keys():
+
+    if "unit" not in spec["mem"]:
         spec["mem"]["unit"] = "G"
-    elif not spec["mem"]["unit"] in ("M", "G"):
+    elif spec["mem"]["unit"] not in ("M", "G"):
         sys.exit("error: bad config, 'mem.unit' is not valid")
 
-    if not "disk" in spec.keys():
+
+def wee__config_process_disk(spec):
+    """Locate and check the storage the guest boots from."""
+    if "disk" not in spec:
         sys.exit("error: bad config, 'disk' is not set")
-    elif not isinstance(spec["disk"], str):
+    if not isinstance(spec["disk"], str):
         sys.exit("error: bad config, 'disk' is not valid")
 
     spec["disk"] = pathlib.Path(spec["disk"]).expanduser().resolve()
     if not spec["disk"].exists() or not spec["disk"].is_file():
         sys.exit("error: bad config, 'disk' is not valid")
 
-    if "bios" in spec.keys():
-        if not isinstance(spec["bios"], str):
-            sys.exit("error: bad config, 'bios' is not valid")
 
-        spec["bios"] = pathlib.Path(spec["bios"]).expanduser().resolve()
-        if not spec["bios"].exists() or not spec["bios"].is_file():
-            sys.exit("error: bad config, 'bios' is not valid")
+def wee__config_process_bios(spec):
+    """Locate and check the firmware the guest starts from."""
+    if "bios" not in spec:
+        return
 
-    if "kernel" in spec.keys():
-        wee__config_image(spec, "kernel", show)
+    if not isinstance(spec["bios"], str):
+        sys.exit("error: bad config, 'bios' is not valid")
 
-    if "initrd" in spec.keys():
-        wee__config_image(spec, "initrd", show)
+    spec["bios"] = pathlib.Path(spec["bios"]).expanduser().resolve()
+    if not spec["bios"].exists() or not spec["bios"].is_file():
+        sys.exit("error: bad config, 'bios' is not valid")
 
-    if "append" in spec.keys():
-        if not isinstance(spec["append"], str):
-            sys.exit("error: bad config, 'append' is not valid")
 
-    if not "qemu" in spec.keys():
+def wee__config_process_append(spec):
+    """Check the command line handed to the guest kernel."""
+    if "append" in spec and not isinstance(spec["append"], str):
+        sys.exit("error: bad config, 'append' is not valid")
+
+
+def wee__config_process_qemu(spec):
+    """Locate and check the emulator the guest runs under."""
+    if "qemu" not in spec:
         spec["qemu"] = shutil.which("qemu-system-x86_64")
     elif not isinstance(spec["qemu"], str):
         sys.exit("error: bad config, 'qemu' is not valid")
@@ -513,19 +566,20 @@ def wee__config_read(name, mods=None, show=False):
     if not spec["qemu"].exists() or not spec["qemu"].is_file():
         sys.exit("error: bad config, 'qemu' is not valid")
 
-    wee__cpu_setup(spec)
 
-    if not "sev" in spec.keys():
+def wee__config_process_sev(spec):
+    """Settle whether the guest is confidential and how."""
+    if "sev" not in spec:
         spec["sev"] = {}
     elif not isinstance(spec["sev"], dict):
         sys.exit("error: bad config, 'sev' is not valid")
 
-    if not "type" in spec["sev"].keys():
+    if "type" not in spec["sev"]:
         spec["sev"]["type"] = "none"
-    elif not spec["sev"]["type"] in ("none",) + tuple(WEE__SEV_KINDS.keys()):
+    elif spec["sev"]["type"] not in ("none",) + tuple(WEE__SEV_KINDS):
         sys.exit("error: bad config, 'sev.type' is not valid")
 
-    if not "props" in spec["sev"].keys():
+    if "props" not in spec["sev"]:
         spec["sev"]["props"] = {}
     elif not isinstance(spec["sev"]["props"], dict):
         sys.exit("error: bad config, 'sev.props' is not valid")
@@ -533,22 +587,54 @@ def wee__config_read(name, mods=None, show=False):
     if spec["sev"]["type"] != "none":
         wee__sev_setup(spec)
 
-    if not "sudo" in spec.keys():
+
+def wee__config_process_sudo(spec):
+    """Settle whether the guest needs superuser privileges."""
+    if "sudo" not in spec:
         spec["sudo"] = spec["sev"]["type"] != "none"
     elif not isinstance(spec["sudo"], bool):
         sys.exit("error: bad config, 'sudo' is not valid")
 
-    if not "extras" in spec.keys():
+
+def wee__config_process_extras(spec):
+    """Check the options passed through untouched."""
+    if "extras" not in spec:
         spec["extras"] = []
     elif not isinstance(spec["extras"], list) or any(
         not isinstance(option, str) for option in spec["extras"]
     ):
         sys.exit("error: bad config, 'extras' is not valid")
 
+
+def wee__config_read(name, mods=None, show=False):
+    """Assemble and check the full settings of one guest."""
+    data = wee__config_load()
+    spec = data.get(name)
+    if not spec:
+        sys.exit(
+            "error: guest '" + name + "' not found" + wee__near(name, data)
+        )
+
+    wee__config_process_mods(spec, name, mods)
+    wee__config_process_cpu(spec)
+    wee__config_process_smp(spec)
+    wee__config_process_mem(spec)
+    wee__config_process_disk(spec)
+    wee__config_process_bios(spec)
+    wee__config_image(spec, "kernel", show)
+    wee__config_image(spec, "initrd", show)
+    wee__config_process_append(spec)
+    wee__config_process_qemu(spec)
+    wee__cpu_setup(spec)
+    wee__config_process_sev(spec)
+    wee__config_process_sudo(spec)
+    wee__config_process_extras(spec)
+
     return spec
 
 
 def wee__launch(name, mods, show=False):
+    """Start a guest, or show the command that would start it."""
     spec = wee__config_read(name, mods, show)
     if not spec:
         return 1
@@ -566,18 +652,18 @@ def wee__launch(name, mods, show=False):
 
     if spec["sudo"]:
         comm.insert(0, "sudo")
-    if "bios" in spec.keys():
+    if "bios" in spec:
         comm.extend(["-bios", str(spec["bios"])])
-    if "kernel" in spec.keys():
+    if "kernel" in spec:
         comm.extend(["-kernel", str(spec["kernel"])])
-    if "initrd" in spec.keys():
+    if "initrd" in spec:
         comm.extend(["-initrd", str(spec["initrd"])])
-    if "append" in spec.keys():
+    if "append" in spec:
         comm.extend(["-append", spec["append"]])
 
     comm.extend(wee__sev_args(spec))
 
-    if "extras" in spec.keys():
+    if "extras" in spec:
         comm.extend(spec["extras"])
 
     comm.extend(
@@ -605,6 +691,7 @@ def wee__launch(name, mods, show=False):
 
 
 def main() -> int:
+    """Parse the command line and carry out the requested command."""
     atexit.register(wee__remote_wipe)
 
     parser = argparse.ArgumentParser(
