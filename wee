@@ -27,6 +27,7 @@ WEE__SEV_DEVICE = "/dev/sev"
 WEE__SEV_PARAMS = "/sys/module/kvm_amd/parameters"
 WEE__SEV_LEAF = 0x8000001F
 WEE__SEV_POLICY_ES = 0x4
+WEE__SEV_POLICY_MBO = 0x20000
 WEE__SEV_KINDS = {
     "sev": ("sev-guest", 2, "sev"),
     "es": ("sev-guest", 3, "sev_es"),
@@ -165,6 +166,16 @@ def wee__qmp(qemu, cmds):
     return outs[1:]
 
 
+def wee__qom_props(qemu, kind):
+    args = {"typename": kind}
+    cmds = [{"execute": "qom-list-properties", "arguments": args}]
+    outs = wee__qmp(qemu, cmds)
+    if not outs or not isinstance(outs[0].get("return"), list):
+        return None
+
+    return {item["name"]: item["type"] for item in outs[0]["return"]}
+
+
 def wee__cpu_fail(kind, name, names, qemu):
     sys.exit(
         "error: bad config, '"
@@ -205,9 +216,26 @@ def wee__cpu_setup(spec):
             wee__cpu_fail("flag", name, props.keys(), spec["qemu"])
 
 
+def wee__sev_value(name, kind, value):
+    if kind == "OnOffAuto":
+        if isinstance(value, bool):
+            return "on" if value else "off"
+        if value in ("on", "off", "auto"):
+            return value
+    elif isinstance(value, bool):
+        return "true" if value else "false"
+    elif isinstance(value, int):
+        return hex(value) if name == "policy" else str(value)
+    elif isinstance(value, str):
+        return value.replace(",", ",,")
+
+    sys.exit("error: bad config, 'sev.props." + name + "' is not valid")
+
+
 def wee__sev_setup(spec):
     name = spec["sev"]["type"]
     kind, kvmt_bit, knob = WEE__SEV_KINDS[name]
+    props = spec["sev"]["props"]
 
     kvmt = wee__sev_types()
     if kvmt is None:
@@ -228,12 +256,55 @@ def wee__sev_setup(spec):
         )
 
     bits = wee__sev_bits()
-    if not bits:
-        sys.exit("error: unable to read SEV parameters from CPUID")
+    if bits:
+        props.setdefault("cbitpos", bits[0])
+        props.setdefault("reduced-phys-bits", bits[1])
 
-    props = {"cbitpos": bits[0], "reduced-phys-bits": bits[1]}
+    for key in ("cbitpos", "reduced-phys-bits"):
+        if not key in props.keys():
+            sys.exit("error: bad config, 'sev.props." + key + "' is not set")
+
+    policy = props.get("policy")
+    if policy is not None and (
+        isinstance(policy, bool) or not isinstance(policy, int)
+    ):
+        sys.exit("error: bad config, 'sev.props.policy' is not valid")
+
     if name == "es":
-        props["policy"] = 0x1 | WEE__SEV_POLICY_ES
+        props["policy"] = (policy or 0x1) | WEE__SEV_POLICY_ES
+    elif name == "sev" and policy and policy & WEE__SEV_POLICY_ES:
+        sys.exit(
+            "error: bad config, 'sev.props.policy' selects SEV-ES, "
+            "use 'sev.type = \"es\"'"
+        )
+    elif name == "snp" and policy and not policy & WEE__SEV_POLICY_MBO:
+        sys.exit(
+            "error: bad config, 'sev.props.policy' must set bit 17 "
+            "(SNP_POLICY_MASK_RSVD_MBO)"
+        )
+
+    kinds = wee__qom_props(spec["qemu"], kind)
+    if not kinds:
+        sys.exit(
+            "error: unable to list '"
+            + kind
+            + "' properties from '"
+            + str(spec["qemu"])
+            + "'"
+        )
+
+    for key in props.keys():
+        if not key in kinds.keys():
+            sys.exit(
+                "error: bad config, '"
+                + key
+                + "' is not a property of '"
+                + kind
+                + "' in '"
+                + str(spec["qemu"])
+                + "'\n       available: "
+                + ", ".join(sorted(kinds.keys()))
+            )
 
     wee__info(
         name
@@ -245,8 +316,7 @@ def wee__sev_setup(spec):
 
     spec["sev"]["kind"] = kind
     spec["sev"]["props"] = {
-        key: hex(val) if key == "policy" else str(val)
-        for key, val in props.items()
+        key: wee__sev_value(key, kinds[key], val) for key, val in props.items()
     }
 
 
@@ -254,9 +324,11 @@ def wee__sev_args(spec):
     if spec["sev"]["type"] == "none":
         return []
 
-    opts = ["id=sev0"] + [
-        key + "=" + val for key, val in spec["sev"]["props"].items()
-    ]
+    props = spec["sev"]["props"]
+    order = ["cbitpos", "reduced-phys-bits"]
+    order += [key for key in props.keys() if not key in order]
+
+    opts = ["id=sev0"] + [key + "=" + props[key] for key in order]
 
     return [
         "-object",
@@ -452,6 +524,11 @@ def wee__config_read(name, mods=None, show=False):
         spec["sev"]["type"] = "none"
     elif not spec["sev"]["type"] in ("none",) + tuple(WEE__SEV_KINDS.keys()):
         sys.exit("error: bad config, 'sev.type' is not valid")
+
+    if not "props" in spec["sev"].keys():
+        spec["sev"]["props"] = {}
+    elif not isinstance(spec["sev"]["props"], dict):
+        sys.exit("error: bad config, 'sev.props' is not valid")
 
     if spec["sev"]["type"] != "none":
         wee__sev_setup(spec)

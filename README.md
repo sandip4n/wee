@@ -22,6 +22,7 @@ options.
 | `append`      | String  |         | Y        | Kernel command line                      |
 | `qemu`        | String  |         | Y        | QEMU path                                |
 | `sev.type`    | String  | `none`  | Y        | Guest type (`sev`, `es`, `snp`, `none`)  |
+| `sev.props`   | Table   | `{}`    | Y        | Properties of the guest object           |
 | `sudo`        | Boolean |         | Y        | Start guest with `sudo`                  |
 | `extras`      | Array   | `[]`    | Y        | Extras to be added as-is to command line |
 
@@ -96,7 +97,9 @@ wee exec --mods install-fedora,small foo
 wee exec --mods no-pmu,large foo
 ```
 
-Confidential guests are selected with `sev.type`.
+Confidential guests are selected with `sev.type`. Everything under `sev.props`
+is passed to the QEMU object, so any property that the configured QEMU build
+understands can be set there.
 
 ```
 [foo.mods.sev]
@@ -107,10 +110,15 @@ sev.type = "es"
 
 [foo.mods.sev-snp]
 sev.type = "snp"
+sev.props.kernel-hashes = true
+
+[foo.mods.sev-snp-debug]
+sev.type = "snp"
+sev.props.policy = 0xB0000
 ```
 
 `cbitpos` and `reduced-phys-bits` are read from the host, so they do not have
-to be set.
+to be set. Setting either one under `sev.props` overrides the host value.
 
 The defined guests can be listed, as can the mods of a guest along with the
 options each one overrides.
