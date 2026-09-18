@@ -183,7 +183,7 @@ def wee__config_read(name, mods=None):
 def wee__launch(name, mods):
     spec = wee__config_read(name, mods)
     if not spec:
-        return
+        return 1
 
     comm = [
         str(spec["qemu"]),
@@ -226,7 +226,7 @@ def wee__launch(name, mods):
     )
 
     with subprocess.Popen(comm, shell=False) as process:
-        process.wait()
+        return process.wait()
 
 
 def main() -> int:
@@ -240,8 +240,7 @@ def main() -> int:
     if args.mods:
         args.mods = [mod.strip() for mod in args.mods.split(",")]
 
-    wee__launch(args.name, args.mods if args.mods else None)
-    return 0
+    return wee__launch(args.name, args.mods if args.mods else None)
 
 
 if __name__ == "__main__":
