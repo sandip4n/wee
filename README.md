@@ -26,6 +26,16 @@ options.
 
 ## Usage
 
+The following commands are available.
+
+| Command            | Description                     |
+|--------------------|---------------------------------|
+| `list`             | List guests                     |
+| `mods GUEST`       | List mods of a guest            |
+| `exec GUEST`       | Start a guest                   |
+
+Running `wee` with no command shows the same help as `wee --help`.
+
 An example of a simple guest is shown below.
 
 ```
@@ -42,7 +52,7 @@ disk = "~/foo-disk.qcow2"
 Once a guest is defined, it can be launched as shown below.
 
 ```
-wee foo
+wee exec foo
 ```
 
 Each guest can also have a set of mods. They contain overrides for some of the
@@ -78,9 +88,17 @@ mem.size = 64
 A guest can be launched with one or more mods as shown below.
 
 ```
-wee --mods no-pmu foo
-wee --mods install-fedora,small foo
-wee --mods no-pmu,large foo
+wee exec --mods no-pmu foo
+wee exec --mods install-fedora,small foo
+wee exec --mods no-pmu,large foo
+```
+
+The defined guests can be listed, as can the mods of a guest along with the
+options each one overrides.
+
+```
+wee list
+wee mods foo
 ```
 
 More examples can be found [here](examples/)

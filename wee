@@ -17,6 +17,8 @@ import tomllib
 
 wee__remote_pool = []
 
+WEE__LIST_WIDTH = 64
+
 
 def wee__info(text):
     print("info: " + text, file=sys.stderr)
@@ -70,6 +72,54 @@ def wee__merge(base, over):
             wee__merge(base[key], val)
         else:
             base[key] = val
+
+
+def wee__config_flat(table, pre=""):
+    opts = []
+    for key, val in table.items():
+        if isinstance(val, dict):
+            opts += wee__config_flat(val, pre + key + ".")
+        else:
+            opts.append((pre + key, val))
+
+    return opts
+
+
+def wee__config_show(val):
+    if isinstance(val, bool):
+        return "true" if val else "false"
+    if isinstance(val, str):
+        return '"' + val + '"'
+    if isinstance(val, list):
+        return "[ " + ", ".join(wee__config_show(item) for item in val) + " ]"
+
+    return str(val)
+
+
+def wee__config_list():
+    for guest in wee__config_load().keys():
+        print(guest)
+
+    return 0
+
+
+def wee__config_mods(name):
+    data = wee__config_load()
+    if not name in data.keys():
+        sys.exit(
+            "error: guest '" + name + "' not found" + wee__near(name, data)
+        )
+
+    for mod, opts in data[name].get("mods", {}).items():
+        print(mod)
+        for key, val in wee__config_flat(opts):
+            text = key + " = " + wee__config_show(val)
+            if len(text) > WEE__LIST_WIDTH:
+                text = text[:WEE__LIST_WIDTH] + "..."
+
+            print("    " + text)
+
+    return 0
 
 
 def wee__config_read(name, mods=None):
@@ -255,10 +305,33 @@ def wee__launch(name, mods):
 def main() -> int:
     atexit.register(wee__remote_wipe)
 
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--mods", "-m", metavar="LIST", type=str, help="guest mods")
-    parser.add_argument("name", metavar="NAME", type=str, help="guest name")
+    parser = argparse.ArgumentParser(
+        description="Launch basic x86-64 KVM guests."
+    )
+    subs = parser.add_subparsers(dest="command", metavar="COMMAND")
+
+    subs.add_parser("list", help="list guests")
+
+    mods = subs.add_parser("mods", help="list mods of a guest")
+    mods.add_argument("name", metavar="GUEST", type=str, help="guest name")
+
+    boot = subs.add_parser("exec", help="start a guest")
+    boot.add_argument(
+        "--mods", "-m", metavar="LIST", type=str, help="guest mods"
+    )
+    boot.add_argument("name", metavar="GUEST", type=str, help="guest name")
+
     args = parser.parse_args()
+
+    if not args.command:
+        parser.print_help()
+        return 0
+
+    if args.command == "list":
+        return wee__config_list()
+
+    if args.command == "mods":
+        return wee__config_mods(args.name)
 
     if args.mods:
         args.mods = [mod.strip() for mod in args.mods.split(",")]
