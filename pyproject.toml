@@ -1,0 +1,17 @@
+[tool.black]
+line-length = 80
+
+[tool.ruff]
+line-length = 80
+target-version = "py311"
+
+[tool.pylint.main]
+max-branches = 45
+max-statements = 90
+
+[tool.pylint.messages_control]
+disable = [
+    "implicit-str-concat",
+    "missing-function-docstring",
+    "missing-module-docstring",
+]
