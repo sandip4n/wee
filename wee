@@ -3,6 +3,7 @@
 
 import argparse
 import atexit
+import copy
 import pathlib
 import shutil
 import subprocess
@@ -50,6 +51,14 @@ def wee__config_load():
     return tomllib.loads(file.read_text())
 
 
+def wee__merge(base, over):
+    for key, val in over.items():
+        if isinstance(base.get(key), dict) and isinstance(val, dict):
+            wee__merge(base[key], val)
+        else:
+            base[key] = val
+
+
 def wee__config_read(name, mods=None):
     data = wee__config_load()
     spec = next((data[key] for key in data.keys() if key == name), None)
@@ -63,8 +72,8 @@ def wee__config_read(name, mods=None):
         if not set(mods).issubset(spec["mods"].keys()):
             sys.exit("error: one or more mods are not valid")
 
-        mods = [opts for name, opts in spec["mods"].items() if name in mods]
-        any(spec.update(opts) for opts in mods)
+        for mod in mods:
+            wee__merge(spec, copy.deepcopy(spec["mods"][mod]))
 
     if not "cpu" in spec.keys():
         spec["cpu"] = {}
