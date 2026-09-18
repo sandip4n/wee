@@ -12,28 +12,10 @@ append = "inst.stage2=https://download.fedoraproject.org/pub/fedora/linux/releas
 extras = [ "-no-reboot" ]
 
 [fedora.mods.sev]
-sudo = true
-extras = [
-	"-object",
-	"sev-guest,id=sev0,cbitpos=51,reduced-phys-bits=1",
-	"-machine",
-	"confidential-guest-support=sev0"
-]
+sev.type = "sev"
 
 [fedora.mods.sev-es]
-sudo = true
-extras = [
-	"-object",
-	"sev-guest,id=sev0,cbitpos=51,reduced-phys-bits=1,policy=0x5",
-	"-machine",
-	"confidential-guest-support=sev0"
-]
+sev.type = "es"
 
 [fedora.mods.sev-snp]
-sudo = true
-extras = [
-	"-object",
-	"sev-snp-guest,id=sev0,cbitpos=51,reduced-phys-bits=1",
-	"-machine",
-	"confidential-guest-support=sev0"
-]
+sev.type = "snp"

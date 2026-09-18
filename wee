@@ -4,8 +4,12 @@
 import argparse
 import atexit
 import copy
+import ctypes
 import difflib
+import fcntl
 import json
+import mmap
+import os
 import pathlib
 import shlex
 import shutil
@@ -19,6 +23,17 @@ import tomllib
 
 wee__remote_pool = []
 
+WEE__SEV_DEVICE = "/dev/sev"
+WEE__SEV_PARAMS = "/sys/module/kvm_amd/parameters"
+WEE__SEV_LEAF = 0x8000001F
+WEE__SEV_POLICY_ES = 0x4
+WEE__SEV_KINDS = {
+    "sev": ("sev-guest", 2, "sev"),
+    "es": ("sev-guest", 3, "sev_es"),
+    "snp": ("sev-snp-guest", 4, "sev_snp"),
+}
+WEE__KVM_CHECK_EXTENSION = 0xAE03
+WEE__KVM_CAP_VM_TYPES = 235
 WEE__LIST_WIDTH = 64
 
 
@@ -60,6 +75,66 @@ def wee__remote_path(path):
         path = wee__remote_stow(path)
 
     return path
+
+
+def wee__cpuid(leaf):
+    code = bytes.fromhex(
+        "53" "89f8" "31c9" "0fa2" "8906" "895e04" "894e08" "89560c" "5b" "c3"
+    )
+
+    page = mmap.mmap(
+        -1, len(code), prot=mmap.PROT_READ | mmap.PROT_WRITE | mmap.PROT_EXEC
+    )
+    page.write(code)
+
+    view = ctypes.c_char.from_buffer(page)
+    call = ctypes.CFUNCTYPE(
+        None, ctypes.c_uint32, ctypes.POINTER(ctypes.c_uint32)
+    )(ctypes.addressof(view))
+
+    regs = (ctypes.c_uint32 * 4)()
+    call(leaf, regs)
+    vals = tuple(regs)
+
+    del call, view
+    page.close()
+
+    return vals
+
+
+def wee__sev_bits():
+    try:
+        ebx = wee__cpuid(WEE__SEV_LEAF)[1]
+    except Exception:
+        return None
+
+    return ebx & 0x3F, (ebx >> 6) & 0x3F
+
+
+def wee__sev_types():
+    try:
+        node = os.open("/dev/kvm", os.O_RDWR | os.O_CLOEXEC)
+    except OSError:
+        return None
+
+    try:
+        return fcntl.ioctl(
+            node, WEE__KVM_CHECK_EXTENSION, WEE__KVM_CAP_VM_TYPES
+        )
+    except OSError:
+        return None
+    finally:
+        os.close(node)
+
+
+def wee__sev_why(knob):
+    file = pathlib.Path(WEE__SEV_PARAMS) / knob
+    if not file.exists():
+        return "'kvm_amd' has no SEV support"
+    if file.read_text().strip() != "Y":
+        return "'kvm_amd." + knob + "' is not enabled"
+
+    return "KVM does not offer the VM type"
 
 
 def wee__qmp(qemu, cmds):
@@ -128,6 +203,67 @@ def wee__cpu_setup(spec):
         name = flag.lstrip("+-").split("=")[0].replace("_", "-")
         if not name in props.keys():
             wee__cpu_fail("flag", name, props.keys(), spec["qemu"])
+
+
+def wee__sev_setup(spec):
+    name = spec["sev"]["type"]
+    kind, kvmt_bit, knob = WEE__SEV_KINDS[name]
+
+    kvmt = wee__sev_types()
+    if kvmt is None:
+        wee__info("'/dev/kvm' not readable, skipping capability check")
+    elif not kvmt & (1 << kvmt_bit):
+        sys.exit(
+            "error: host cannot run '"
+            + name
+            + "' guests, "
+            + wee__sev_why(knob)
+        )
+
+    if not pathlib.Path(WEE__SEV_DEVICE).exists():
+        sys.exit(
+            "error: '"
+            + WEE__SEV_DEVICE
+            + "' not found, memory encryption not enabled by BIOS"
+        )
+
+    bits = wee__sev_bits()
+    if not bits:
+        sys.exit("error: unable to read SEV parameters from CPUID")
+
+    props = {"cbitpos": bits[0], "reduced-phys-bits": bits[1]}
+    if name == "es":
+        props["policy"] = 0x1 | WEE__SEV_POLICY_ES
+
+    wee__info(
+        name
+        + " guest, cbitpos="
+        + str(props["cbitpos"])
+        + ", reduced-phys-bits="
+        + str(props["reduced-phys-bits"])
+    )
+
+    spec["sev"]["kind"] = kind
+    spec["sev"]["props"] = {
+        key: hex(val) if key == "policy" else str(val)
+        for key, val in props.items()
+    }
+
+
+def wee__sev_args(spec):
+    if spec["sev"]["type"] == "none":
+        return []
+
+    opts = ["id=sev0"] + [
+        key + "=" + val for key, val in spec["sev"]["props"].items()
+    ]
+
+    return [
+        "-object",
+        spec["sev"]["kind"] + "," + ",".join(opts),
+        "-machine",
+        "confidential-guest-support=sev0",
+    ]
 
 
 def wee__config_load():
@@ -307,8 +443,21 @@ def wee__config_read(name, mods=None, show=False):
 
     wee__cpu_setup(spec)
 
+    if not "sev" in spec.keys():
+        spec["sev"] = {}
+    elif not isinstance(spec["sev"], dict):
+        sys.exit("error: bad config, 'sev' is not valid")
+
+    if not "type" in spec["sev"].keys():
+        spec["sev"]["type"] = "none"
+    elif not spec["sev"]["type"] in ("none",) + tuple(WEE__SEV_KINDS.keys()):
+        sys.exit("error: bad config, 'sev.type' is not valid")
+
+    if spec["sev"]["type"] != "none":
+        wee__sev_setup(spec)
+
     if not "sudo" in spec.keys():
-        spec["sudo"] = False
+        spec["sudo"] = spec["sev"]["type"] != "none"
     elif not isinstance(spec["sudo"], bool):
         sys.exit("error: bad config, 'sudo' is not valid")
 
@@ -348,6 +497,9 @@ def wee__launch(name, mods, show=False):
         comm.extend(["-initrd", str(spec["initrd"])])
     if "append" in spec.keys():
         comm.extend(["-append", spec["append"]])
+
+    comm.extend(wee__sev_args(spec))
+
     if "extras" in spec.keys():
         comm.extend(spec["extras"])
 

@@ -12,28 +12,10 @@ append = "cloud-config-url=/dev/null ip=dhcp url=https://releases.ubuntu.com/nob
 extras = [ "-no-reboot" ]
 
 [ubuntu.mods.sev]
-sudo = true
-extras = [
-	"-object",
-	"sev-guest,id=sev0,cbitpos=51,reduced-phys-bits=1",
-	"-machine",
-	"confidential-guest-support=sev0"
-]
+sev.type = "sev"
 
 [ubuntu.mods.sev-es]
-sudo = true
-extras = [
-	"-object",
-	"sev-guest,id=sev0,cbitpos=51,reduced-phys-bits=1,policy=0x5",
-	"-machine",
-	"confidential-guest-support=sev0"
-]
+sev.type = "es"
 
 [ubuntu.mods.sev-snp]
-sudo = true
-extras = [
-	"-object",
-	"sev-snp-guest,id=sev0,cbitpos=51,reduced-phys-bits=1",
-	"-machine",
-	"confidential-guest-support=sev0"
-]
+sev.type = "snp"

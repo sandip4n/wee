@@ -21,8 +21,11 @@ options.
 | `initrd`      | String  |         | Y        | Initrd path or URL (use PXE boot initrd) |
 | `append`      | String  |         | Y        | Kernel command line                      |
 | `qemu`        | String  |         | Y        | QEMU path                                |
-| `sudo`        | Boolean | `false` | Y        | Start guest with `sudo`                  |
+| `sev.type`    | String  | `none`  | Y        | Guest type (`sev`, `es`, `snp`, `none`)  |
+| `sudo`        | Boolean |         | Y        | Start guest with `sudo`                  |
 | `extras`      | Array   | `[]`    | Y        | Extras to be added as-is to command line |
+
+`sudo` defaults to `true` when `sev.type` is set and `false` otherwise.
 
 ## Usage
 
@@ -92,6 +95,22 @@ wee exec --mods no-pmu foo
 wee exec --mods install-fedora,small foo
 wee exec --mods no-pmu,large foo
 ```
+
+Confidential guests are selected with `sev.type`.
+
+```
+[foo.mods.sev]
+sev.type = "sev"
+
+[foo.mods.sev-es]
+sev.type = "es"
+
+[foo.mods.sev-snp]
+sev.type = "snp"
+```
+
+`cbitpos` and `reduced-phys-bits` are read from the host, so they do not have
+to be set.
 
 The defined guests can be listed, as can the mods of a guest along with the
 options each one overrides.
