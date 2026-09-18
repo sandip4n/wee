@@ -4,6 +4,7 @@
 import argparse
 import atexit
 import copy
+import difflib
 import pathlib
 import shutil
 import subprocess
@@ -19,6 +20,14 @@ wee__remote_pool = []
 
 def wee__info(text):
     print("info: " + text, file=sys.stderr)
+
+
+def wee__near(name, names):
+    near = difflib.get_close_matches(name, list(names), 3)
+    if not near:
+        return ""
+
+    return ", did you mean " + ", ".join(near) + "?"
 
 
 def wee__remote_stow(path):
@@ -67,14 +76,24 @@ def wee__config_read(name, mods=None):
     data = wee__config_load()
     spec = next((data[key] for key in data.keys() if key == name), None)
     if not spec:
-        sys.exit("error: name not found")
+        sys.exit(
+            "error: guest '" + name + "' not found" + wee__near(name, data)
+        )
 
     if not "mods" in spec.keys():
         spec["mods"] = {}
 
     if mods:
-        if not set(mods).issubset(spec["mods"].keys()):
-            sys.exit("error: one or more mods are not valid")
+        for mod in mods:
+            if not mod in spec["mods"].keys():
+                sys.exit(
+                    "error: mod '"
+                    + mod
+                    + "' not found in '"
+                    + name
+                    + "'"
+                    + wee__near(mod, spec["mods"])
+                )
 
         for mod in mods:
             wee__merge(spec, copy.deepcopy(spec["mods"][mod]))
