@@ -5,6 +5,7 @@ import argparse
 import atexit
 import copy
 import difflib
+import json
 import pathlib
 import shlex
 import shutil
@@ -59,6 +60,74 @@ def wee__remote_path(path):
         path = wee__remote_stow(path)
 
     return path
+
+
+def wee__qmp(qemu, cmds):
+    comm = [str(qemu), "-machine", "none", "-display", "none", "-qmp", "stdio"]
+    send = [{"execute": "qmp_capabilities"}] + cmds + [{"execute": "quit"}]
+
+    try:
+        done = subprocess.run(
+            comm,
+            input="\n".join(json.dumps(item) for item in send),
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return []
+
+    outs = []
+    for line in done.stdout.splitlines():
+        try:
+            data = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+
+        if "return" in data.keys() or "error" in data.keys():
+            outs.append(data)
+
+    return outs[1:]
+
+
+def wee__cpu_fail(kind, name, names, qemu):
+    sys.exit(
+        "error: bad config, '"
+        + name
+        + "' is not a CPU "
+        + kind
+        + " in '"
+        + str(qemu)
+        + "'"
+        + wee__near(name, names)
+    )
+
+
+def wee__cpu_setup(spec):
+    model = spec["cpu"]["model"]
+    args = {"type": "full", "model": {"name": model}}
+    outs = wee__qmp(
+        spec["qemu"],
+        [
+            {"execute": "query-cpu-model-expansion", "arguments": args},
+            {"execute": "query-cpu-definitions"},
+        ],
+    )
+
+    if len(outs) < 2:
+        wee__info("unable to query CPU models, skipping check")
+        return
+
+    if "error" in outs[0].keys():
+        names = [item["name"] for item in outs[1].get("return", [])]
+        wee__cpu_fail("model", model, names, spec["qemu"])
+
+    props = outs[0]["return"]["model"]["props"]
+
+    for flag in spec["cpu"]["flags"]:
+        name = flag.lstrip("+-").split("=")[0].replace("_", "-")
+        if not name in props.keys():
+            wee__cpu_fail("flag", name, props.keys(), spec["qemu"])
 
 
 def wee__config_load():
@@ -235,6 +304,8 @@ def wee__config_read(name, mods=None, show=False):
     spec["qemu"] = pathlib.Path(spec["qemu"]).expanduser().resolve()
     if not spec["qemu"].exists() or not spec["qemu"].is_file():
         sys.exit("error: bad config, 'qemu' is not valid")
+
+    wee__cpu_setup(spec)
 
     if not "sudo" in spec.keys():
         spec["sudo"] = False
