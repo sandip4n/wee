@@ -38,6 +38,7 @@ WEE__SEV_KINDS = {
 WEE__KVM_CHECK_EXTENSION = 0xAE03
 WEE__KVM_CAP_VM_TYPES = 235
 WEE__LIST_WIDTH = 64
+WEE__EDITORS = ("editor", "vi")
 
 
 def wee__info(text):
@@ -367,14 +368,19 @@ def wee__sev_args(spec):
     ]
 
 
-def wee__config_load():
-    """Read the guest definitions, creating the file if absent."""
+def wee__config_file():
+    """Locate the guest definitions, creating the file if absent."""
     file = platformdirs.user_config_path("wee") / "guests.toml"
     file.parent.mkdir(parents=True, exist_ok=True)
     if not file.exists():
         file.touch()
 
-    return tomllib.loads(file.read_text())
+    return file
+
+
+def wee__config_load():
+    """Read the guest definitions."""
+    return tomllib.loads(wee__config_file().read_text())
 
 
 def wee__merge(base, over):
@@ -436,6 +442,23 @@ def wee__config_mods(name):
             print("    " + text)
 
     return 0
+
+
+def wee__config_edit():
+    """Open the guest definitions in the preferred editor."""
+    edit = os.environ.get("VISUAL") or os.environ.get("EDITOR")
+    if not edit:
+        for name in WEE__EDITORS:
+            if shutil.which(name):
+                edit = name
+                break
+
+    if not edit:
+        sys.exit("error: no editor found, set 'VISUAL' or 'EDITOR'")
+
+    comm = shlex.split(edit) + [str(wee__config_file())]
+    with subprocess.Popen(comm, shell=False) as process:
+        return process.wait()
 
 
 def wee__config_image(spec, key, show):
@@ -704,6 +727,8 @@ def main() -> int:
     mods = subs.add_parser("mods", help="list mods of a guest")
     mods.add_argument("name", metavar="GUEST", type=str, help="guest name")
 
+    subs.add_parser("edit", help="edit guests")
+
     boot = subs.add_parser("exec", help="start a guest")
     boot.add_argument(
         "--mods", "-m", metavar="LIST", type=str, help="guest mods"
@@ -724,6 +749,9 @@ def main() -> int:
 
     if args.command == "mods":
         return wee__config_mods(args.name)
+
+    if args.command == "edit":
+        return wee__config_edit()
 
     if args.mods:
         args.mods = [mod.strip() for mod in args.mods.split(",")]

@@ -36,6 +36,7 @@ The following commands are available.
 |--------------------|---------------------------------|
 | `list`             | List guests                     |
 | `mods GUEST`       | List mods of a guest            |
+| `edit`             | Edit guests                     |
 | `exec GUEST`       | Start a guest                   |
 
 Running `wee` with no command shows the same help as `wee --help`.
@@ -126,6 +127,12 @@ options each one overrides.
 ```
 wee list
 wee mods foo
+```
+
+The definitions can be opened in the editor named by `VISUAL` or `EDITOR`.
+
+```
+wee edit
 ```
 
 The command line for a guest can be shown without starting it.
