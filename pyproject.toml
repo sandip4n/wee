@@ -4,3 +4,8 @@ line-length = 80
 [tool.ruff]
 line-length = 80
 target-version = "py311"
+
+[tool.pylint.messages_control]
+disable = [
+    "too-many-lines",
+]
