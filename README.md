@@ -26,6 +26,8 @@ options.
 | `sudo`          | Boolean |         | Y        | Start guest with `sudo`                  |
 | `conn.vnc`      | Boolean | `false` | Y        | Enable VNC display                       |
 | `conn.port.vnc` | Integer | `5900`  | Y        | VNC port (`5900` or above)               |
+| `conn.ssh`      | Boolean | `false` | Y        | Enable SSH forwarding                    |
+| `conn.port.ssh` | Integer | `2222`  | Y        | SSH port                                 |
 | `extras`        | Array   | `[]`    | Y        | Extras to be added as-is to command line |
 
 `sudo` defaults to `true` when `sev.type` is set and `false` otherwise.
@@ -134,6 +136,18 @@ conn.port.vnc = 5903
 
 ```
 vncviewer localhost:5903
+```
+
+A port on the local host can be forwarded to the SSH server in the guest.
+
+```
+[foo.mods.ssh]
+conn.ssh = true
+conn.port.ssh = 2222
+```
+
+```
+ssh -p 2222 user@localhost
 ```
 
 The defined guests can be listed, as can the mods of a guest along with the
