@@ -63,7 +63,7 @@ wee__props = types.SimpleNamespace(
             "e1000e": "nic,model=e1000e",
         },
     ),
-    tpm=types.SimpleNamespace(wait=5.0),
+    tpm=types.SimpleNamespace(model="tpm-crb", wait=5.0),
     conn=types.SimpleNamespace(
         host="127.0.0.1",
         ports={
@@ -520,7 +520,7 @@ def wee__tpm_stop(proc):
         proc.wait()
 
 
-def wee__args_tpm(state):
+def wee__args_tpm(spec, state):
     """Build the options that give the guest a TPM."""
     if state is None:
         return []
@@ -531,7 +531,7 @@ def wee__args_tpm(state):
         "-tpmdev",
         "emulator,id=tpm0,chardev=chrtpm",
         "-device",
-        "tpm-crb,tpmdev=tpm0",
+        spec["tpm"]["model"] + ",tpmdev=tpm0",
     ]
 
 
@@ -807,6 +807,27 @@ def wee__opts_tpm_state(spec):
         sys.exit("error: host: 'swtpm' not found")
 
 
+def wee__opts_tpm_model(spec):
+    """Settle the TPM interface, as offered by the configured QEMU."""
+    model = spec["tpm"].setdefault("model", wee__props.tpm.model)
+    if not isinstance(model, str):
+        sys.exit("error: config: 'tpm.model' not valid")
+
+    outs = wee__qmp(spec["qemu"], [{"execute": "query-tpm-models"}])
+    if not outs or not isinstance(outs[0].get("return"), list):
+        wee__info("unable to query TPM models, skipping check")
+        return
+
+    models = outs[0]["return"]
+    if model not in models:
+        sys.exit(
+            "error: config: '"
+            + model
+            + "' not a tpm model"
+            + wee__near(model, models)
+        )
+
+
 def wee__opts_tpm(spec):
     """Settle whether the guest is given a TPM."""
     if spec.get("tpm", False) is False:
@@ -816,8 +837,9 @@ def wee__opts_tpm(spec):
     if not isinstance(spec["tpm"], dict):
         sys.exit("error: config: 'tpm' not valid")
 
-    wee__config_keys(spec["tpm"], "tpm", ("state",))
+    wee__config_keys(spec["tpm"], "tpm", ("state", "model"))
     wee__opts_tpm_state(spec)
+    wee__opts_tpm_model(spec)
 
 
 def wee__opts_bios_code(spec):
@@ -996,13 +1018,13 @@ def wee__config_read(name, mods=None, show=False):
     wee__opts_mem(spec)
     wee__opts_disk(spec)
     wee__opts_dev(spec)
-    wee__opts_tpm(spec)
     wee__opts_bios(spec)
     wee__opts_kernel(spec, show)
     wee__opts_initrd(spec, show)
     wee__opts_append(spec)
     wee__opts_qemu(spec)
     wee__cpu_setup(spec)
+    wee__opts_tpm(spec)
     wee__opts_sev(spec)
     wee__opts_sudo(spec)
     wee__opts_extras(spec)
@@ -1050,7 +1072,7 @@ def wee__launch(name, mods, show=False):
     comm.extend(
         [
             *wee__args_dev_blk(spec),
-            *wee__args_tpm(tpm),
+            *wee__args_tpm(spec, tpm),
             *wee__args_dev_net(spec),
             *wee__args_conn_ssh(spec),
             *wee__args_conn_vnc(spec),

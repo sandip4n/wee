@@ -8,32 +8,33 @@ TOML is used as the file format for configuration. Guests are defined in
 `~/.config/wee/guests.toml` as tables. Each guest uses the following keys as
 options.
 
-| Name            | Type    | Default | Optional | Description                              |
-|-----------------|---------|---------|----------|------------------------------------------|
-| `cpu.model`     | String  | `host`  | Y        | CPU model                                |
-| `cpu.flags`     | Array   | `[]`    | Y        | CPU flags                                |
-| `smp`           | Integer |         | N        | CPU count                                |
-| `mem.size`      | Integer |         | N        | RAM size                                 |
-| `mem.unit`      | String  | `G`     | Y        | RAM size unit (`M` for MB or `G` for GB) |
-| `bios`          | String  |         | Y        | Firmware image                           |
-| `bios.code`     | String  |         | Y        | Firmware code (with `bios.vars`)         |
-| `bios.vars`     | String  |         | Y        | Firmware variables of the guest          |
-| `disk`          | String  |         | N        | Disk path                                |
-| `dev.blk`       | String  |         | Y        | Disk connection (`virtio` or `ahci`)     |
-| `dev.net`       | String  |         | Y        | Network card (`virtio` or `e1000e`)      |
-| `tpm.state`     | String  |         | Y        | TPM state directory                      |
-| `kernel`        | String  |         | Y        | Kernel path or URL (use PXE boot kernel) |
-| `initrd`        | String  |         | Y        | Initrd path or URL (use PXE boot initrd) |
-| `append`        | String  |         | Y        | Kernel command line                      |
-| `qemu`          | String  |         | Y        | QEMU path                                |
-| `sev.type`      | String  | `none`  | Y        | Guest type (`sev`, `es`, `snp`, `none`)  |
-| `sev.props`     | Table   | `{}`    | Y        | Properties of the guest object           |
-| `sudo`          | Boolean |         | Y        | Start guest with `sudo`                  |
-| `conn.vnc`      | Boolean | `false` | Y        | Enable VNC display                       |
-| `conn.port.vnc` | Integer | `5900`  | Y        | VNC port (`5900` or above)               |
-| `conn.ssh`      | Boolean | `false` | Y        | Enable SSH forwarding                    |
-| `conn.port.ssh` | Integer | `2222`  | Y        | SSH port                                 |
-| `extras`        | Array   | `[]`    | Y        | Extras to be added as-is to command line |
+| Name            | Type    | Default   | Optional | Description                              |
+|-----------------|---------|-----------|----------|------------------------------------------|
+| `cpu.model`     | String  | `host`    | Y        | CPU model                                |
+| `cpu.flags`     | Array   | `[]`      | Y        | CPU flags                                |
+| `smp`           | Integer |           | N        | CPU count                                |
+| `mem.size`      | Integer |           | N        | RAM size                                 |
+| `mem.unit`      | String  | `G`       | Y        | RAM size unit (`M` for MB or `G` for GB) |
+| `bios`          | String  |           | Y        | Firmware image                           |
+| `bios.code`     | String  |           | Y        | Firmware code (with `bios.vars`)         |
+| `bios.vars`     | String  |           | Y        | Firmware variables of the guest          |
+| `disk`          | String  |           | N        | Disk path                                |
+| `dev.blk`       | String  |           | Y        | Disk connection (`virtio` or `ahci`)     |
+| `dev.net`       | String  |           | Y        | Network card (`virtio` or `e1000e`)      |
+| `tpm.state`     | String  |           | Y        | TPM state directory                      |
+| `tpm.model`     | String  | `tpm-crb` | Y        | TPM interface                            |
+| `kernel`        | String  |           | Y        | Kernel path or URL (use PXE boot kernel) |
+| `initrd`        | String  |           | Y        | Initrd path or URL (use PXE boot initrd) |
+| `append`        | String  |           | Y        | Kernel command line                      |
+| `qemu`          | String  |           | Y        | QEMU path                                |
+| `sev.type`      | String  | `none`    | Y        | Guest type (`sev`, `es`, `snp`, `none`)  |
+| `sev.props`     | Table   | `{}`      | Y        | Properties of the guest object           |
+| `sudo`          | Boolean |           | Y        | Start guest with `sudo`                  |
+| `conn.vnc`      | Boolean | `false`   | Y        | Enable VNC display                       |
+| `conn.port.vnc` | Integer | `5900`    | Y        | VNC port (`5900` or above)               |
+| `conn.ssh`      | Boolean | `false`   | Y        | Enable SSH forwarding                    |
+| `conn.port.ssh` | Integer | `2222`    | Y        | SSH port                                 |
+| `extras`        | Array   | `[]`      | Y        | Extras to be added as-is to command line |
 
 `sudo` defaults to `true` when `sev.type` is set and `false` otherwise.
 
@@ -132,6 +133,9 @@ tpm.state = "~/foo-tpm"
 ```
 mkdir ~/foo-tpm
 ```
+
+The TPM uses the CRB interface by default. `tpm.model` selects another one
+that the configured QEMU build offers, such as `tpm-tis`.
 
 Firmware can be a single image, as in the example above, or split into code
 and variables. Split firmware keeps the changes made to its variables, such as
