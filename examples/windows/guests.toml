@@ -1,0 +1,34 @@
+[windows]
+smp = 4
+mem.size = 8
+mem.unit = "G"
+cpu.flags = [
+	"hv-relaxed",
+	"hv-vapic",
+	"hv-spinlocks=0x1fff",
+	"hv-vpindex",
+	"hv-runtime",
+	"hv-time",
+	"hv-synic",
+	"hv-stimer",
+	"hv-stimer-direct",
+	"hv-frequencies",
+	"hv-reenlightenment",
+	"hv-tlbflush",
+	"hv-tlbflush-ext",
+	"hv-tlbflush-direct",
+	"hv-ipi",
+	"hv-xmm-input"
+]
+bios.code = "/usr/share/OVMF/OVMF_CODE_4M.secboot.fd"
+bios.vars = "windows_VARS.fd"
+bios.sign = true
+tpm.state = "windows-tpm"
+dev.blk = "ahci"
+dev.net = "e1000e"
+conn.vnc = true
+disk = "windows-x86_64.qcow2"
+extras.rtc.base = "localtime"
+
+[windows.mods.install]
+extras.cdrom = "Windows11.iso"

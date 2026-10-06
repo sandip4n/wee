@@ -9,13 +9,15 @@ disk = "fedora-x86_64.qcow2"
 kernel = "https://download.fedoraproject.org/pub/fedora/linux/releases/43/Server/x86_64/os/images/pxeboot/vmlinuz"
 initrd = "https://download.fedoraproject.org/pub/fedora/linux/releases/43/Server/x86_64/os/images/pxeboot/initrd.img"
 append = "inst.stage2=https://download.fedoraproject.org/pub/fedora/linux/releases/43/Server/x86_64/os/ ip=dhcp console=ttyS0,115200"
-extras = [ "-no-reboot" ]
+extras.action.reboot = "shutdown"
 
 [fedora.mods.sev]
 sev.type = "sev"
 
 [fedora.mods.sev-es]
 sev.type = "es"
+bios = "/usr/share/ovmf/OVMF.amdsev.fd"
 
 [fedora.mods.sev-snp]
 sev.type = "snp"
+bios = "/usr/share/ovmf/OVMF.amdsev.fd"
