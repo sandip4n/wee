@@ -312,7 +312,7 @@ def wee__sev_setup(spec):
     }
 
 
-def wee__sev_args(spec):
+def wee__args_sev(spec):
     """Build the options that make a guest a confidential one."""
     if spec["sev"]["type"] == "none":
         return []
@@ -442,7 +442,17 @@ def wee__config_image(spec, key, show):
     spec[key] = path
 
 
-def wee__config_process_mods(spec, mods):
+def wee__opts_kernel(spec, show):
+    """Locate and check the kernel the guest boots directly."""
+    wee__config_image(spec, "kernel", show)
+
+
+def wee__opts_initrd(spec, show):
+    """Locate and check the initial ramdisk given to that kernel."""
+    wee__config_image(spec, "initrd", show)
+
+
+def wee__opts_mods(spec, mods):
     """Apply the selected overrides in the order they were given."""
     if "mods" not in spec:
         spec["mods"] = {}
@@ -463,7 +473,7 @@ def wee__config_process_mods(spec, mods):
         wee__merge(spec, copy.deepcopy(spec["mods"][mod]))
 
 
-def wee__config_process_cpu(spec):
+def wee__opts_cpu(spec):
     """Settle the processor model and the flags applied to it."""
     if "cpu" not in spec:
         spec["cpu"] = {}
@@ -481,7 +491,7 @@ def wee__config_process_cpu(spec):
         sys.exit("error: config: 'cpu.flags' not valid")
 
 
-def wee__config_process_smp(spec):
+def wee__opts_smp(spec):
     """Settle how many processors the guest is given."""
     if "smp" not in spec:
         sys.exit("error: config: 'smp' not set")
@@ -489,7 +499,7 @@ def wee__config_process_smp(spec):
         sys.exit("error: config: 'smp' not valid")
 
 
-def wee__config_process_mem(spec):
+def wee__opts_mem(spec):
     """Settle how much memory the guest is given."""
     if "mem" not in spec:
         sys.exit("error: config: 'mem' not set")
@@ -505,7 +515,7 @@ def wee__config_process_mem(spec):
         sys.exit("error: config: 'mem.unit' not valid")
 
 
-def wee__config_process_disk(spec):
+def wee__opts_disk(spec):
     """Locate and check the storage the guest boots from."""
     if "disk" not in spec:
         sys.exit("error: config: 'disk' not set")
@@ -517,7 +527,7 @@ def wee__config_process_disk(spec):
         sys.exit("error: config: 'disk' not valid")
 
 
-def wee__config_process_bios(spec):
+def wee__opts_bios(spec):
     """Locate and check the firmware the guest starts from."""
     if "bios" not in spec:
         return
@@ -530,13 +540,13 @@ def wee__config_process_bios(spec):
         sys.exit("error: config: 'bios' not valid")
 
 
-def wee__config_process_append(spec):
+def wee__opts_append(spec):
     """Check the command line handed to the guest kernel."""
     if "append" in spec and not isinstance(spec["append"], str):
         sys.exit("error: config: 'append' not valid")
 
 
-def wee__config_process_qemu(spec):
+def wee__opts_qemu(spec):
     """Locate and check the emulator the guest runs under."""
     if "qemu" not in spec:
         spec["qemu"] = shutil.which("qemu-system-x86_64")
@@ -551,7 +561,7 @@ def wee__config_process_qemu(spec):
         sys.exit("error: config: 'qemu' not valid")
 
 
-def wee__config_process_sev(spec):
+def wee__opts_sev(spec):
     """Settle whether the guest is confidential and how."""
     if "sev" not in spec:
         spec["sev"] = {}
@@ -572,7 +582,7 @@ def wee__config_process_sev(spec):
         wee__sev_setup(spec)
 
 
-def wee__config_process_sudo(spec):
+def wee__opts_sudo(spec):
     """Settle whether the guest needs superuser privileges."""
     if "sudo" not in spec:
         spec["sudo"] = spec["sev"]["type"] != "none"
@@ -580,7 +590,7 @@ def wee__config_process_sudo(spec):
         sys.exit("error: config: 'sudo' not valid")
 
 
-def wee__config_process_extras(spec):
+def wee__opts_extras(spec):
     """Check the options passed through untouched."""
     if "extras" not in spec:
         spec["extras"] = []
@@ -599,20 +609,20 @@ def wee__config_read(name, mods=None, show=False):
             "error: guest: '" + name + "' not found" + wee__near(name, data)
         )
 
-    wee__config_process_mods(spec, mods)
-    wee__config_process_cpu(spec)
-    wee__config_process_smp(spec)
-    wee__config_process_mem(spec)
-    wee__config_process_disk(spec)
-    wee__config_process_bios(spec)
-    wee__config_image(spec, "kernel", show)
-    wee__config_image(spec, "initrd", show)
-    wee__config_process_append(spec)
-    wee__config_process_qemu(spec)
+    wee__opts_mods(spec, mods)
+    wee__opts_cpu(spec)
+    wee__opts_smp(spec)
+    wee__opts_mem(spec)
+    wee__opts_disk(spec)
+    wee__opts_bios(spec)
+    wee__opts_kernel(spec, show)
+    wee__opts_initrd(spec, show)
+    wee__opts_append(spec)
+    wee__opts_qemu(spec)
     wee__cpu_setup(spec)
-    wee__config_process_sev(spec)
-    wee__config_process_sudo(spec)
-    wee__config_process_extras(spec)
+    wee__opts_sev(spec)
+    wee__opts_sudo(spec)
+    wee__opts_extras(spec)
 
     return spec
 
@@ -645,7 +655,7 @@ def wee__launch(name, mods, show=False):
     if "append" in spec:
         comm.extend(["-append", spec["append"]])
 
-    comm.extend(wee__sev_args(spec))
+    comm.extend(wee__args_sev(spec))
 
     if "extras" in spec:
         comm.extend(spec["extras"])
