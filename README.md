@@ -21,6 +21,7 @@ options.
 | `disk`          | String  |         | N        | Disk path                                |
 | `dev.blk`       | String  |         | Y        | Disk connection (`virtio` or `ahci`)     |
 | `dev.net`       | String  |         | Y        | Network card (`virtio` or `e1000e`)      |
+| `tpm.state`     | String  |         | Y        | TPM state directory                      |
 | `kernel`        | String  |         | Y        | Kernel path or URL (use PXE boot kernel) |
 | `initrd`        | String  |         | Y        | Initrd path or URL (use PXE boot initrd) |
 | `append`        | String  |         | Y        | Kernel command line                      |
@@ -118,6 +119,18 @@ supported by nearly every system.
 [foo]
 dev.blk = "ahci"
 dev.net = "e1000e"
+```
+
+A guest can be given a TPM, emulated by `swtpm`, which must be installed. Its
+state is kept in a directory of the guest's own, which must exist.
+
+```
+[foo]
+tpm.state = "~/foo-tpm"
+```
+
+```
+mkdir ~/foo-tpm
 ```
 
 Firmware can be a single image, as in the example above, or split into code

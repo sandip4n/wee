@@ -5,6 +5,7 @@
 
 import argparse
 import atexit
+import contextlib
 import copy
 import ctypes
 import difflib
@@ -17,6 +18,7 @@ import shlex
 import shutil
 import subprocess
 import sys
+import time
 import tomllib
 import types
 import urllib.parse
@@ -61,6 +63,7 @@ wee__props = types.SimpleNamespace(
             "e1000e": "nic,model=e1000e",
         },
     ),
+    tpm=types.SimpleNamespace(wait=5.0),
     conn=types.SimpleNamespace(
         host="127.0.0.1",
         ports={
@@ -309,6 +312,14 @@ def wee__sev_limits(spec):
             "error: config: '" + name + "' guests need a single 'bios' image"
         )
 
+    if spec.get("tpm"):
+        sys.exit(
+            "error: config: 'tpm.state' "
+            + "not supported for '"
+            + name
+            + "' guests"
+        )
+
 
 def wee__sev_setup(spec):
     """Prepare and check the settings of a confidential guest."""
@@ -452,6 +463,76 @@ def wee__args_dev_net(spec):
         return ["-net", "nic"]
 
     return ["-net", wee__props.dev.net[spec["dev"]["net"]]]
+
+
+def wee__tpm_comm(state):
+    """Build the command that runs the TPM emulator."""
+    return [
+        "swtpm",
+        "socket",
+        "--tpm2",
+        "--tpmstate",
+        "dir=" + str(state),
+        "--ctrl",
+        "type=unixio,path=" + str(state / "sock") + ",terminate",
+        "--terminate",
+        "--log",
+        "file=" + str(state / "log"),
+    ]
+
+
+@contextlib.contextmanager
+def wee__tpm_run(state):
+    """Keep the TPM emulator running for as long as the guest runs."""
+    if state is None:
+        yield
+        return
+
+    sock = state / "sock"
+    sock.unlink(missing_ok=True)
+
+    with subprocess.Popen(
+        wee__tpm_comm(state), stdin=subprocess.DEVNULL
+    ) as proc:
+        try:
+            limit = time.monotonic() + wee__props.tpm.wait
+            while not sock.exists():
+                if proc.poll() is not None or time.monotonic() > limit:
+                    sys.exit("error: host: 'swtpm' not running")
+
+                time.sleep(0.05)
+
+            yield
+        finally:
+            wee__tpm_stop(proc)
+
+
+def wee__tpm_stop(proc):
+    """Stop the TPM emulator if it is still running."""
+    if proc.poll() is not None:
+        return
+
+    proc.terminate()
+    try:
+        proc.wait(timeout=wee__props.tpm.wait)
+    except subprocess.TimeoutExpired:
+        proc.kill()
+        proc.wait()
+
+
+def wee__args_tpm(state):
+    """Build the options that give the guest a TPM."""
+    if state is None:
+        return []
+
+    return [
+        "-chardev",
+        "socket,id=chrtpm,path=" + str(state / "sock"),
+        "-tpmdev",
+        "emulator,id=tpm0,chardev=chrtpm",
+        "-device",
+        "tpm-crb,tpmdev=tpm0",
+    ]
 
 
 def wee__config_file():
@@ -706,6 +787,39 @@ def wee__opts_dev(spec):
     wee__opts_dev_net(spec)
 
 
+def wee__opts_tpm_state(spec):
+    """Locate and check the directory holding the guest's TPM state."""
+    if "state" not in spec["tpm"]:
+        sys.exit("error: config: 'tpm.state' not set")
+
+    state = spec["tpm"]["state"]
+    if not isinstance(state, str):
+        sys.exit("error: config: 'tpm.state' not valid")
+
+    state = pathlib.Path(state).expanduser().resolve()
+    if not state.is_dir():
+        sys.exit("error: config: 'tpm.state' not a directory")
+
+    wee__config_owned(state, "tpm.state")
+    spec["tpm"]["state"] = state
+
+    if not shutil.which("swtpm"):
+        sys.exit("error: host: 'swtpm' not found")
+
+
+def wee__opts_tpm(spec):
+    """Settle whether the guest is given a TPM."""
+    if spec.get("tpm", False) is False:
+        spec["tpm"] = None
+        return
+
+    if not isinstance(spec["tpm"], dict):
+        sys.exit("error: config: 'tpm' not valid")
+
+    wee__config_keys(spec["tpm"], "tpm", ("state",))
+    wee__opts_tpm_state(spec)
+
+
 def wee__opts_bios_code(spec):
     """Locate and check the read-only half of split firmware."""
     if "code" not in spec["bios"]:
@@ -882,6 +996,7 @@ def wee__config_read(name, mods=None, show=False):
     wee__opts_mem(spec)
     wee__opts_disk(spec)
     wee__opts_dev(spec)
+    wee__opts_tpm(spec)
     wee__opts_bios(spec)
     wee__opts_kernel(spec, show)
     wee__opts_initrd(spec, show)
@@ -901,6 +1016,8 @@ def wee__launch(name, mods, show=False):
     spec = wee__config_read(name, mods, show)
     if not spec:
         return 1
+
+    tpm = spec["tpm"]["state"] if spec["tpm"] else None
 
     comm = [
         str(spec["qemu"]),
@@ -933,6 +1050,7 @@ def wee__launch(name, mods, show=False):
     comm.extend(
         [
             *wee__args_dev_blk(spec),
+            *wee__args_tpm(tpm),
             *wee__args_dev_net(spec),
             *wee__args_conn_ssh(spec),
             *wee__args_conn_vnc(spec),
@@ -942,10 +1060,13 @@ def wee__launch(name, mods, show=False):
     )
 
     if show:
+        if tpm:
+            print(shlex.join(wee__tpm_comm(tpm)))
+
         print(shlex.join(comm))
         return 0
 
-    with subprocess.Popen(comm, shell=False) as process:
+    with wee__tpm_run(tpm), subprocess.Popen(comm, shell=False) as process:
         return process.wait()
 
 
