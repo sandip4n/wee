@@ -550,6 +550,19 @@ def wee__args_tpm(spec, state):
     ]
 
 
+def wee__args_extras(spec):
+    """Build the options added to the command line."""
+    comm = []
+    for name, val in spec["extras"].items():
+        if isinstance(val, bool):
+            comm.extend(["-" + name] if val else [])
+            continue
+        for item in val if isinstance(val, list) else [val]:
+            comm.extend(["-" + name, wee__extras_arg(item)])
+
+    return comm
+
+
 def wee__config_file():
     """Locate the guest definitions, creating the file if absent."""
     file = platformdirs.user_config_path("wee") / "guests.toml"
@@ -594,6 +607,11 @@ def wee__config_show(val):
         return '"' + val + '"'
     if isinstance(val, list):
         return "[ " + ", ".join(wee__config_show(item) for item in val) + " ]"
+    if isinstance(val, dict):
+        pairs = [
+            key + " = " + wee__config_show(item) for key, item in val.items()
+        ]
+        return "{ " + ", ".join(pairs) + " }"
 
     return str(val)
 
@@ -947,14 +965,41 @@ def wee__opts_sudo(spec):
         sys.exit("error: config: 'sudo' not valid")
 
 
+def wee__extras_arg(val):
+    """Render the argument of one extra option, or nothing if it is bad."""
+    if isinstance(val, bool):
+        return None
+    if isinstance(val, (int, str)):
+        return str(val)
+    if not isinstance(val, dict) or not val:
+        return None
+
+    pairs = []
+    for key, item in wee__config_flat(val):
+        if isinstance(item, bool):
+            item = "on" if item else "off"
+        elif isinstance(item, int):
+            item = str(item)
+        elif not isinstance(item, str):
+            return None
+        pairs.append(key + "=" + item.replace(",", ",,"))
+
+    return ",".join(pairs)
+
+
 def wee__opts_extras(spec):
-    """Check the options passed through untouched."""
+    """Check the options added to the command line."""
     if "extras" not in spec:
-        spec["extras"] = []
-    elif not isinstance(spec["extras"], list) or any(
-        not isinstance(option, str) for option in spec["extras"]
-    ):
+        spec["extras"] = {}
+    if not isinstance(spec["extras"], dict):
         sys.exit("error: config: 'extras' not valid")
+
+    for name, val in spec["extras"].items():
+        if isinstance(val, bool):
+            continue
+        items = val if isinstance(val, list) else [val]
+        if any(wee__extras_arg(item) is None for item in items):
+            sys.exit("error: config: 'extras." + name + "' not valid")
 
 
 def wee__config_keys(table, name, known):
@@ -1089,8 +1134,7 @@ def wee__launch(name, mods, show=False):
 
     comm.extend(wee__args_sev(spec))
 
-    if "extras" in spec:
-        comm.extend(spec["extras"])
+    comm.extend(wee__args_extras(spec))
 
     comm.extend(
         [

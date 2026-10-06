@@ -35,12 +35,47 @@ options.
 | `conn.port.vnc` | Integer | `5900`    | Y        | VNC port (`5900` or above)               |
 | `conn.ssh`      | Boolean | `false`   | Y        | Enable SSH forwarding                    |
 | `conn.port.ssh` | Integer | `2222`    | Y        | SSH port                                 |
-| `extras`        | Array   | `[]`      | Y        | Extras to be added as-is to command line |
+| `extras`        | Table   | `{}`      | Y        | QEMU options added to the command line   |
 
 `sudo` defaults to `true` when `sev.type` is set and `false` otherwise.
 
 Guests run on QEMU's `q35` machine. A guest that needs the older `pc` machine
-can select it with `extras = [ "-machine", "pc" ]`.
+can select it with `extras.machine.type = "pc"`.
+
+Other QEMU options are added with `extras`, where each key names an option. A
+table becomes the settings of the option, a string or a number is passed as it
+is, `true` adds an option that takes no value, and an array repeats the option
+for each entry.
+
+```
+[foo]
+extras.rtc.base = "localtime"
+extras.machine.kernel_irqchip = "split"
+extras.no-shutdown = true
+extras.device = [ { driver = "virtio-rng-pci" }, { driver = "pvpanic" } ]
+```
+
+```
+-rtc base=localtime -machine kernel_irqchip=split -no-shutdown
+-device driver=virtio-rng-pci -device driver=pvpanic
+```
+
+QEMU can discard everything a guest writes to its drives, so that each start
+begins from the same state.
+
+```
+[foo.mods.temp]
+extras.snapshot = true
+```
+
+Installation media can be inserted as a CD-ROM. Further images need an
+`index` of 3 or above.
+
+```
+[foo.mods.install-iso]
+extras.cdrom = "/path/to/Win11.iso"
+extras.drive = [ { file = "/path/to/virtio-win.iso", media = "cdrom", index = 3 } ]
+```
 
 ## Usage
 
