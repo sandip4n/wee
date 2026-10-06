@@ -18,6 +18,7 @@ options.
 | `bios`          | String  |           | Y        | Firmware image                           |
 | `bios.code`     | String  |           | Y        | Firmware code (with `bios.vars`)         |
 | `bios.vars`     | String  |           | Y        | Firmware variables of the guest          |
+| `bios.sign`     | Boolean | `false`   | Y        | Protect firmware variables (Secure Boot) |
 | `disk`          | String  |           | N        | Disk path                                |
 | `dev.blk`       | String  |           | Y        | Disk connection (`virtio` or `ahci`)     |
 | `dev.net`       | String  |           | Y        | Network card (`virtio` or `e1000e`)      |
@@ -150,6 +151,23 @@ bios.vars = "~/foo_VARS.fd"
 
 ```
 cp /usr/share/OVMF/OVMF_VARS_4M.fd ~/foo_VARS.fd
+```
+
+Firmware with Secure Boot keeps the keys it checks signatures against in its
+variables. `bios.sign` protects the variables so that only the firmware can
+change them, which Secure Boot relies on. Signatures are checked once keys are
+enrolled: the `.ms` variables template has Microsoft's keys, the plain one has
+none.
+
+```
+[foo]
+bios.code = "/usr/share/OVMF/OVMF_CODE_4M.secboot.fd"
+bios.vars = "~/foo_VARS.fd"
+bios.sign = true
+```
+
+```
+cp /usr/share/OVMF/OVMF_VARS_4M.ms.fd ~/foo_VARS.fd
 ```
 
 Confidential guests are selected with `sev.type`. Everything under `sev.props`

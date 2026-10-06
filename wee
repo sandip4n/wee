@@ -383,12 +383,16 @@ def wee__args_sev(spec):
 
     opts = ["id=sev0"] + [key + "=" + props[key] for key in order]
 
-    return [
+    comm = [
         "-object",
         spec["sev"]["object"] + "," + ",".join(opts),
         "-machine",
         "confidential-guest-support=sev0",
     ]
+    if spec["sev"]["type"] in wee__props.sev.protected:
+        comm.extend(["-machine", "smm=off"])
+
+    return comm
 
 
 def wee__args_conn_vnc(spec):
@@ -436,12 +440,23 @@ def wee__args_bios(spec):
     if not isinstance(bios, dict):
         return ["-bios", str(bios)]
 
-    return [
+    comm = [
         "-drive",
         "if=pflash,format=raw,unit=0,readonly=on,file=" + str(bios["code"]),
         "-drive",
         "if=pflash,format=raw,unit=1,file=" + str(bios["vars"]),
     ]
+    if bios["sign"]:
+        comm.extend(
+            [
+                "-machine",
+                "smm=on",
+                "-global",
+                "driver=cfi.pflash01,property=secure,value=on",
+            ]
+        )
+
+    return comm
 
 
 def wee__args_dev_blk(spec):
@@ -859,6 +874,13 @@ def wee__opts_bios_vars(spec):
     wee__config_owned(spec["bios"]["vars"], "bios.vars")
 
 
+def wee__opts_bios_sign(spec):
+    """Settle whether the firmware checks signatures before booting."""
+    sign = spec["bios"].setdefault("sign", False)
+    if not isinstance(sign, bool):
+        sys.exit("error: config: 'bios.sign' not valid")
+
+
 def wee__opts_bios(spec):
     """Locate and check the firmware the guest starts from."""
     if "bios" not in spec:
@@ -868,9 +890,10 @@ def wee__opts_bios(spec):
         spec["bios"] = wee__config_path(spec["bios"], "bios")
         return
 
-    wee__config_keys(spec["bios"], "bios", ("code", "vars"))
+    wee__config_keys(spec["bios"], "bios", ("code", "vars", "sign"))
     wee__opts_bios_code(spec)
     wee__opts_bios_vars(spec)
+    wee__opts_bios_sign(spec)
 
 
 def wee__opts_append(spec):
