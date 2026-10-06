@@ -18,6 +18,7 @@ import shutil
 import subprocess
 import sys
 import tomllib
+import types
 import urllib.parse
 import urllib.request
 
@@ -25,19 +26,31 @@ import platformdirs
 
 wee__remote_pool = []
 
-WEE__SEV_DEVICE = "/dev/sev"
-WEE__SEV_LEAF = 0x8000001F
-WEE__SEV_POLICY_ES = 0x4
-WEE__SEV_POLICY_MBO = 0x20000
-WEE__SEV_KINDS = {
-    "sev": ("sev-guest", 2),
-    "es": ("sev-guest", 3),
-    "snp": ("sev-snp-guest", 4),
-}
-WEE__KVM_CHECK_EXTENSION = 0xAE03
-WEE__KVM_CAP_VM_TYPES = 235
-WEE__LIST_WIDTH = 64
-WEE__EDITORS = ("editor", "vi")
+wee__props = types.SimpleNamespace(
+    sev=types.SimpleNamespace(
+        device="/dev/sev",
+        leaf=0x8000001F,
+        policy_es=0x4,
+        policy_mbo=0x20000,
+        types={
+            "sev": types.SimpleNamespace(
+                object="sev-guest",
+                vm=2,
+            ),
+            "es": types.SimpleNamespace(
+                object="sev-guest",
+                vm=3,
+            ),
+            "snp": types.SimpleNamespace(
+                object="sev-snp-guest",
+                vm=4,
+            ),
+        },
+    ),
+    kvm=types.SimpleNamespace(check_extension=0xAE03, cap_vm_types=235),
+    mods=types.SimpleNamespace(width=64),
+    edit=types.SimpleNamespace(editors=("editor", "vi")),
+)
 
 
 def wee__info(text):
@@ -114,7 +127,7 @@ def wee__cpuid(leaf):
 def wee__sev_bits():
     """Report the encryption bit and the address bits it costs."""
     try:
-        ebx = wee__cpuid(WEE__SEV_LEAF)[1]
+        ebx = wee__cpuid(wee__props.sev.leaf)[1]
     except (OSError, ValueError):
         return None
 
@@ -130,7 +143,7 @@ def wee__sev_types():
 
     try:
         return fcntl.ioctl(
-            node, WEE__KVM_CHECK_EXTENSION, WEE__KVM_CAP_VM_TYPES
+            node, wee__props.kvm.check_extension, wee__props.kvm.cap_vm_types
         )
     except OSError:
         return None
@@ -168,9 +181,9 @@ def wee__qmp(qemu, cmds):
     return outs[1:]
 
 
-def wee__qom_props(qemu, kind):
+def wee__qom_props(qemu, obj):
     """Report the properties a QEMU build accepts for an object."""
-    args = {"typename": kind}
+    args = {"typename": obj}
     cmds = [{"execute": "qom-list-properties", "arguments": args}]
     outs = wee__qmp(qemu, cmds)
     if not outs or not isinstance(outs[0].get("return"), list):
@@ -179,13 +192,13 @@ def wee__qom_props(qemu, kind):
     return {item["name"]: item["type"] for item in outs[0]["return"]}
 
 
-def wee__cpu_fail(kind, name, names):
+def wee__cpu_fail(what, name, names):
     """Reject an unknown processor setting and suggest alternatives."""
     sys.exit(
         "error: config: '"
         + name
         + "' not a cpu "
-        + kind
+        + what
         + wee__near(name, names)
     )
 
@@ -218,9 +231,9 @@ def wee__cpu_setup(spec):
             wee__cpu_fail("flag", name, props)
 
 
-def wee__sev_value(name, kind, value):
+def wee__sev_value(name, prop_type, value):
     """Render one property value the way QEMU expects to read it."""
-    if kind == "OnOffAuto":
+    if prop_type == "OnOffAuto":
         if isinstance(value, bool):
             return "on" if value else "off"
         if value in ("on", "off", "auto"):
@@ -235,15 +248,15 @@ def wee__sev_value(name, kind, value):
     sys.exit("error: config: 'sev.props." + name + "' not valid")
 
 
-def wee__sev_check(name, kvmt_bit):
+def wee__sev_check(name, sev_type):
     """Refuse a confidential guest the host is unable to run."""
     kvmt = wee__sev_types()
     if kvmt is None:
         wee__info("'/dev/kvm' not readable, skipping capability check")
-    elif not kvmt & (1 << kvmt_bit):
+    elif not kvmt & (1 << sev_type.vm):
         sys.exit("error: host: '" + name + "' guests not supported by kvm")
 
-    if not pathlib.Path(WEE__SEV_DEVICE).exists():
+    if not pathlib.Path(wee__props.sev.device).exists():
         sys.exit("error: host: memory encryption not enabled")
 
 
@@ -256,23 +269,23 @@ def wee__sev_policy(name, props):
         sys.exit("error: config: 'sev.props.policy' not valid")
 
     if name == "es":
-        props["policy"] = (policy or 0x1) | WEE__SEV_POLICY_ES
-    elif name == "sev" and policy and policy & WEE__SEV_POLICY_ES:
+        props["policy"] = (policy or 0x1) | wee__props.sev.policy_es
+    elif name == "sev" and policy and policy & wee__props.sev.policy_es:
         sys.exit(
             "error: config: 'sev.props.policy' selects sev-es, "
             + "use 'sev.type = \"es\"'"
         )
-    elif name == "snp" and policy and not policy & WEE__SEV_POLICY_MBO:
+    elif name == "snp" and policy and not policy & wee__props.sev.policy_mbo:
         sys.exit("error: config: 'sev.props.policy' must set bit 17")
 
 
 def wee__sev_setup(spec):
     """Prepare and check the settings of a confidential guest."""
     name = spec["sev"]["type"]
-    kind, kvmt_bit = WEE__SEV_KINDS[name]
+    sev_type = wee__props.sev.types[name]
     props = spec["sev"]["props"]
 
-    wee__sev_check(name, kvmt_bit)
+    wee__sev_check(name, sev_type)
 
     bits = wee__sev_bits()
     if bits:
@@ -285,17 +298,21 @@ def wee__sev_setup(spec):
 
     wee__sev_policy(name, props)
 
-    kinds = wee__qom_props(spec["qemu"], kind)
-    if not kinds:
-        sys.exit("error: host: '" + kind + "' properties not listed by qemu")
+    prop_types = wee__qom_props(spec["qemu"], sev_type.object)
+    if not prop_types:
+        sys.exit(
+            "error: host: '"
+            + sev_type.object
+            + "' properties not listed by qemu"
+        )
 
     for key in props:
-        if key not in kinds:
+        if key not in prop_types:
             sys.exit(
                 "error: config: 'sev.props."
                 + key
                 + "' unknown"
-                + wee__near(key, kinds)
+                + wee__near(key, prop_types)
             )
 
     wee__info(
@@ -306,9 +323,10 @@ def wee__sev_setup(spec):
         + str(props["reduced-phys-bits"])
     )
 
-    spec["sev"]["kind"] = kind
+    spec["sev"]["object"] = sev_type.object
     spec["sev"]["props"] = {
-        key: wee__sev_value(key, kinds[key], val) for key, val in props.items()
+        key: wee__sev_value(key, prop_types[key], val)
+        for key, val in props.items()
     }
 
 
@@ -325,7 +343,7 @@ def wee__args_sev(spec):
 
     return [
         "-object",
-        spec["sev"]["kind"] + "," + ",".join(opts),
+        spec["sev"]["object"] + "," + ",".join(opts),
         "-machine",
         "confidential-guest-support=sev0",
     ]
@@ -399,8 +417,8 @@ def wee__config_mods(name):
         print(mod)
         for key, val in wee__config_flat(opts):
             text = key + " = " + wee__config_show(val)
-            if len(text) > WEE__LIST_WIDTH:
-                text = text[:WEE__LIST_WIDTH] + "..."
+            if len(text) > wee__props.mods.width:
+                text = text[: wee__props.mods.width] + "..."
 
             print("    " + text)
 
@@ -411,7 +429,7 @@ def wee__config_edit():
     """Open the guest definitions in the preferred editor."""
     edit = os.environ.get("VISUAL") or os.environ.get("EDITOR")
     if not edit:
-        for name in WEE__EDITORS:
+        for name in wee__props.edit.editors:
             if shutil.which(name):
                 edit = name
                 break
@@ -570,7 +588,7 @@ def wee__opts_sev(spec):
 
     if "type" not in spec["sev"]:
         spec["sev"]["type"] = "none"
-    elif spec["sev"]["type"] not in ("none",) + tuple(WEE__SEV_KINDS):
+    elif spec["sev"]["type"] not in ("none",) + tuple(wee__props.sev.types):
         sys.exit("error: config: 'sev.type' not valid")
 
     if "props" not in spec["sev"]:
