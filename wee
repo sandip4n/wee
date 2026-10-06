@@ -51,6 +51,12 @@ wee__props = types.SimpleNamespace(
     kvm=types.SimpleNamespace(check_extension=0xAE03, cap_vm_types=235),
     mods=types.SimpleNamespace(width=64),
     edit=types.SimpleNamespace(editors=("editor", "vi")),
+    dev=types.SimpleNamespace(
+        blk={
+            "virtio": "virtio-blk-pci,drive=disk",
+            "ahci": "ide-hd,drive=disk,bus=ide.0",
+        },
+    ),
     conn=types.SimpleNamespace(
         host="127.0.0.1",
         ports={
@@ -423,6 +429,19 @@ def wee__args_bios(spec):
     ]
 
 
+def wee__args_dev_blk(spec):
+    """Build the options that connect the disk to the guest."""
+    if "blk" not in spec["dev"]:
+        return ["-drive", "file=" + str(spec["disk"])]
+
+    return [
+        "-drive",
+        "file=" + str(spec["disk"]) + ",if=none,id=disk",
+        "-device",
+        wee__props.dev.blk[spec["dev"]["blk"]],
+    ]
+
+
 def wee__config_file():
     """Locate the guest definitions, creating the file if absent."""
     file = platformdirs.user_config_path("wee") / "guests.toml"
@@ -637,6 +656,30 @@ def wee__config_owned(path, key):
         sys.exit("error: config: '" + key + "' not owned by you")
 
 
+def wee__opts_dev_blk(spec):
+    """Settle how the disk is connected to the guest."""
+    if "blk" not in spec["dev"]:
+        return
+
+    blk = spec["dev"]["blk"]
+    if not isinstance(blk, str) or blk not in wee__props.dev.blk:
+        sys.exit(
+            "error: config: 'dev.blk' not valid"
+            + wee__near(str(blk), wee__props.dev.blk)
+        )
+
+
+def wee__opts_dev(spec):
+    """Settle the models of the devices the guest is given."""
+    if "dev" not in spec:
+        spec["dev"] = {}
+    elif not isinstance(spec["dev"], dict):
+        sys.exit("error: config: 'dev' not valid")
+
+    wee__config_keys(spec["dev"], "dev", tuple(vars(wee__props.dev)))
+    wee__opts_dev_blk(spec)
+
+
 def wee__opts_bios_code(spec):
     """Locate and check the read-only half of split firmware."""
     if "code" not in spec["bios"]:
@@ -812,6 +855,7 @@ def wee__config_read(name, mods=None, show=False):
     wee__opts_smp(spec)
     wee__opts_mem(spec)
     wee__opts_disk(spec)
+    wee__opts_dev(spec)
     wee__opts_bios(spec)
     wee__opts_kernel(spec, show)
     wee__opts_initrd(spec, show)
@@ -862,10 +906,7 @@ def wee__launch(name, mods, show=False):
 
     comm.extend(
         [
-            "-drive",
-            "file=" + str(spec["disk"]) + ",if=none,id=disk",
-            "-device",
-            "virtio-blk-pci,drive=disk",
+            *wee__args_dev_blk(spec),
             "-net",
             "nic,model=virtio",
             *wee__args_conn_ssh(spec),

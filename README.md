@@ -19,6 +19,7 @@ options.
 | `bios.code`     | String  |         | Y        | Firmware code (with `bios.vars`)         |
 | `bios.vars`     | String  |         | Y        | Firmware variables of the guest          |
 | `disk`          | String  |         | N        | Disk path                                |
+| `dev.blk`       | String  |         | Y        | Disk connection (`virtio` or `ahci`)     |
 | `kernel`        | String  |         | Y        | Kernel path or URL (use PXE boot kernel) |
 | `initrd`        | String  |         | Y        | Initrd path or URL (use PXE boot initrd) |
 | `append`        | String  |         | Y        | Kernel command line                      |
@@ -105,6 +106,15 @@ A guest can be launched with one or more mods as shown below.
 wee exec --mods no-pmu foo
 wee exec --mods install-fedora,small foo
 wee exec --mods no-pmu,large foo
+```
+
+Unless `dev.blk` is set, QEMU decides how the disk is connected. Setting it
+picks one explicitly: virtio is fast but needs drivers in the guest, while AHCI
+is supported by nearly every system.
+
+```
+[foo]
+dev.blk = "virtio"
 ```
 
 Firmware can be a single image, as in the example above, or split into code
