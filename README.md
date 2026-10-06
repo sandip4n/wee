@@ -20,6 +20,7 @@ options.
 | `bios.vars`     | String  |         | Y        | Firmware variables of the guest          |
 | `disk`          | String  |         | N        | Disk path                                |
 | `dev.blk`       | String  |         | Y        | Disk connection (`virtio` or `ahci`)     |
+| `dev.net`       | String  |         | Y        | Network card (`virtio` or `e1000e`)      |
 | `kernel`        | String  |         | Y        | Kernel path or URL (use PXE boot kernel) |
 | `initrd`        | String  |         | Y        | Initrd path or URL (use PXE boot initrd) |
 | `append`        | String  |         | Y        | Kernel command line                      |
@@ -108,13 +109,15 @@ wee exec --mods install-fedora,small foo
 wee exec --mods no-pmu,large foo
 ```
 
-Unless `dev.blk` is set, QEMU decides how the disk is connected. Setting it
-picks one explicitly: virtio is fast but needs drivers in the guest, while AHCI
-is supported by nearly every system.
+Unless `dev.blk` and `dev.net` are set, QEMU decides how the disk is connected
+and which network card the guest gets. Setting them picks one explicitly:
+virtio is fast but needs drivers in the guest, while AHCI and e1000e are
+supported by nearly every system.
 
 ```
 [foo]
-dev.blk = "virtio"
+dev.blk = "ahci"
+dev.net = "e1000e"
 ```
 
 Firmware can be a single image, as in the example above, or split into code

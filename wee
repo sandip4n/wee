@@ -56,6 +56,10 @@ wee__props = types.SimpleNamespace(
             "virtio": "virtio-blk-pci,drive=disk",
             "ahci": "ide-hd,drive=disk,bus=ide.0",
         },
+        net={
+            "virtio": "nic,model=virtio",
+            "e1000e": "nic,model=e1000e",
+        },
     ),
     conn=types.SimpleNamespace(
         host="127.0.0.1",
@@ -442,6 +446,14 @@ def wee__args_dev_blk(spec):
     ]
 
 
+def wee__args_dev_net(spec):
+    """Build the options that give the guest its network card."""
+    if "net" not in spec["dev"]:
+        return ["-net", "nic"]
+
+    return ["-net", wee__props.dev.net[spec["dev"]["net"]]]
+
+
 def wee__config_file():
     """Locate the guest definitions, creating the file if absent."""
     file = platformdirs.user_config_path("wee") / "guests.toml"
@@ -669,6 +681,19 @@ def wee__opts_dev_blk(spec):
         )
 
 
+def wee__opts_dev_net(spec):
+    """Settle the network card the guest is given."""
+    if "net" not in spec["dev"]:
+        return
+
+    net = spec["dev"]["net"]
+    if not isinstance(net, str) or net not in wee__props.dev.net:
+        sys.exit(
+            "error: config: 'dev.net' not valid"
+            + wee__near(str(net), wee__props.dev.net)
+        )
+
+
 def wee__opts_dev(spec):
     """Settle the models of the devices the guest is given."""
     if "dev" not in spec:
@@ -678,6 +703,7 @@ def wee__opts_dev(spec):
 
     wee__config_keys(spec["dev"], "dev", tuple(vars(wee__props.dev)))
     wee__opts_dev_blk(spec)
+    wee__opts_dev_net(spec)
 
 
 def wee__opts_bios_code(spec):
@@ -907,8 +933,7 @@ def wee__launch(name, mods, show=False):
     comm.extend(
         [
             *wee__args_dev_blk(spec),
-            "-net",
-            "nic,model=virtio",
+            *wee__args_dev_net(spec),
             *wee__args_conn_ssh(spec),
             *wee__args_conn_vnc(spec),
             "-serial",
