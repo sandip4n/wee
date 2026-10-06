@@ -15,7 +15,9 @@ options.
 | `smp`           | Integer |         | N        | CPU count                                |
 | `mem.size`      | Integer |         | N        | RAM size                                 |
 | `mem.unit`      | String  | `G`     | Y        | RAM size unit (`M` for MB or `G` for GB) |
-| `bios`          | String  |         | Y        | BIOS path                                |
+| `bios`          | String  |         | Y        | Firmware image                           |
+| `bios.code`     | String  |         | Y        | Firmware code (with `bios.vars`)         |
+| `bios.vars`     | String  |         | Y        | Firmware variables of the guest          |
 | `disk`          | String  |         | N        | Disk path                                |
 | `kernel`        | String  |         | Y        | Kernel path or URL (use PXE boot kernel) |
 | `initrd`        | String  |         | Y        | Initrd path or URL (use PXE boot initrd) |
@@ -105,6 +107,21 @@ wee exec --mods install-fedora,small foo
 wee exec --mods no-pmu,large foo
 ```
 
+Firmware can be a single image, as in the example above, or split into code
+and variables. Split firmware keeps the changes made to its variables, such as
+boot entries, across restarts. The variables are written to, so each guest
+needs its own copy of the variables template.
+
+```
+[foo]
+bios.code = "/usr/share/OVMF/OVMF_CODE_4M.fd"
+bios.vars = "~/foo_VARS.fd"
+```
+
+```
+cp /usr/share/OVMF/OVMF_VARS_4M.fd ~/foo_VARS.fd
+```
+
 Confidential guests are selected with `sev.type`. Everything under `sev.props`
 is passed to the QEMU object, so any property that the configured QEMU build
 understands can be set there.
@@ -115,18 +132,25 @@ sev.type = "sev"
 
 [foo.mods.sev-es]
 sev.type = "es"
+bios = "/usr/share/ovmf/OVMF.amdsev.fd"
 
 [foo.mods.sev-snp]
 sev.type = "snp"
+bios = "/usr/share/ovmf/OVMF.amdsev.fd"
 sev.props.kernel-hashes = true
 
 [foo.mods.sev-snp-debug]
 sev.type = "snp"
+bios = "/usr/share/ovmf/OVMF.amdsev.fd"
 sev.props.policy = 0xB0000
 ```
 
 `cbitpos` and `reduced-phys-bits` are read from the host, so they do not have
 to be set. Setting either one under `sev.props` overrides the host value.
+
+SEV-ES and SEV-SNP guests need firmware as a single image, since they cannot
+use split firmware. `OVMF.amdsev.fd` is built for them, and it is the image
+that enforces `kernel-hashes` rather than only measuring them.
 
 A guest can be given a display reachable over VNC. It listens on the local
 host only, and the serial console stays in the terminal.

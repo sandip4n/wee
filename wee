@@ -32,6 +32,7 @@ wee__props = types.SimpleNamespace(
         leaf=0x8000001F,
         policy_es=0x4,
         policy_mbo=0x20000,
+        protected=("es", "snp"),
         types={
             "sev": types.SimpleNamespace(
                 object="sev-guest",
@@ -287,6 +288,18 @@ def wee__sev_policy(name, props):
         sys.exit("error: config: 'sev.props.policy' must set bit 17")
 
 
+def wee__sev_limits(spec):
+    """Refuse what a guest with protected state cannot be given."""
+    name = spec["sev"]["type"]
+    if name not in wee__props.sev.protected:
+        return
+
+    if isinstance(spec.get("bios"), dict):
+        sys.exit(
+            "error: config: '" + name + "' guests need a single 'bios' image"
+        )
+
+
 def wee__sev_setup(spec):
     """Prepare and check the settings of a confidential guest."""
     name = spec["sev"]["type"]
@@ -390,6 +403,23 @@ def wee__args_conn_ssh(spec):
     return [
         "-net",
         "user,hostfwd=tcp:" + wee__props.conn.host + ":" + port + "-:22",
+    ]
+
+
+def wee__args_bios(spec):
+    """Build the options that load the guest's firmware."""
+    if "bios" not in spec:
+        return []
+
+    bios = spec["bios"]
+    if not isinstance(bios, dict):
+        return ["-bios", str(bios)]
+
+    return [
+        "-drive",
+        "if=pflash,format=raw,unit=0,readonly=on,file=" + str(bios["code"]),
+        "-drive",
+        "if=pflash,format=raw,unit=1,file=" + str(bios["vars"]),
     ]
 
 
@@ -589,17 +619,53 @@ def wee__opts_disk(spec):
         sys.exit("error: config: 'disk' not valid")
 
 
+def wee__config_path(value, key):
+    """Locate one file named in the configuration and check it exists."""
+    if not isinstance(value, str):
+        sys.exit("error: config: '" + key + "' not valid")
+
+    path = pathlib.Path(value).expanduser().resolve()
+    if not path.exists() or not path.is_file():
+        sys.exit("error: config: '" + key + "' not valid")
+
+    return path
+
+
+def wee__config_owned(path, key):
+    """Refuse to let the guest write to something the user does not own."""
+    if path.stat().st_uid != os.getuid():
+        sys.exit("error: config: '" + key + "' not owned by you")
+
+
+def wee__opts_bios_code(spec):
+    """Locate and check the read-only half of split firmware."""
+    if "code" not in spec["bios"]:
+        sys.exit("error: config: 'bios.code' not set")
+
+    spec["bios"]["code"] = wee__config_path(spec["bios"]["code"], "bios.code")
+
+
+def wee__opts_bios_vars(spec):
+    """Locate and check the guest's own store of firmware variables."""
+    if "vars" not in spec["bios"]:
+        sys.exit("error: config: 'bios.vars' not set")
+
+    spec["bios"]["vars"] = wee__config_path(spec["bios"]["vars"], "bios.vars")
+    wee__config_owned(spec["bios"]["vars"], "bios.vars")
+
+
 def wee__opts_bios(spec):
     """Locate and check the firmware the guest starts from."""
     if "bios" not in spec:
         return
 
-    if not isinstance(spec["bios"], str):
-        sys.exit("error: config: 'bios' not valid")
+    if not isinstance(spec["bios"], dict):
+        spec["bios"] = wee__config_path(spec["bios"], "bios")
+        return
 
-    spec["bios"] = pathlib.Path(spec["bios"]).expanduser().resolve()
-    if not spec["bios"].exists() or not spec["bios"].is_file():
-        sys.exit("error: config: 'bios' not valid")
+    wee__config_keys(spec["bios"], "bios", ("code", "vars"))
+    wee__opts_bios_code(spec)
+    wee__opts_bios_vars(spec)
 
 
 def wee__opts_append(spec):
@@ -641,6 +707,7 @@ def wee__opts_sev(spec):
         sys.exit("error: config: 'sev.props' not valid")
 
     if spec["sev"]["type"] != "none":
+        wee__sev_limits(spec)
         wee__sev_setup(spec)
 
 
@@ -780,8 +847,7 @@ def wee__launch(name, mods, show=False):
 
     if spec["sudo"]:
         comm.insert(0, "sudo")
-    if "bios" in spec:
-        comm.extend(["-bios", str(spec["bios"])])
+    comm.extend(wee__args_bios(spec))
     if "kernel" in spec:
         comm.extend(["-kernel", str(spec["kernel"])])
     if "initrd" in spec:
