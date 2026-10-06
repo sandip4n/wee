@@ -768,6 +768,8 @@ def wee__launch(name, mods, show=False):
     comm = [
         str(spec["qemu"]),
         "-enable-kvm",
+        "-machine",
+        "q35",
         "-cpu",
         ",".join([spec["cpu"]["model"]] + spec["cpu"]["flags"]),
         "-smp",

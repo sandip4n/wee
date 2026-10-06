@@ -32,6 +32,9 @@ options.
 
 `sudo` defaults to `true` when `sev.type` is set and `false` otherwise.
 
+Guests run on QEMU's `q35` machine. A guest that needs the older `pc` machine
+can select it with `extras = [ "-machine", "pc" ]`.
+
 ## Usage
 
 The following commands are available.
