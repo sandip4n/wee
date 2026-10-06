@@ -8,23 +8,25 @@ TOML is used as the file format for configuration. Guests are defined in
 `~/.config/wee/guests.toml` as tables. Each guest uses the following keys as
 options.
 
-| Name          | Type    | Default | Optional | Description                              |
-|---------------|---------|---------|----------|------------------------------------------|
-| `cpu.model`   | String  | `host`  | Y        | CPU model                                |
-| `cpu.flags`   | Array   | `[]`    | Y        | CPU flags                                |
-| `smp`         | Integer |         | N        | CPU count                                |
-| `mem.size`    | Integer |         | N        | RAM size                                 |
-| `mem.unit`    | String  | `G`     | Y        | RAM size unit (`M` for MB or `G` for GB) |
-| `bios`        | String  |         | Y        | BIOS path                                |
-| `disk`        | String  |         | N        | Disk path                                |
-| `kernel`      | String  |         | Y        | Kernel path or URL (use PXE boot kernel) |
-| `initrd`      | String  |         | Y        | Initrd path or URL (use PXE boot initrd) |
-| `append`      | String  |         | Y        | Kernel command line                      |
-| `qemu`        | String  |         | Y        | QEMU path                                |
-| `sev.type`    | String  | `none`  | Y        | Guest type (`sev`, `es`, `snp`, `none`)  |
-| `sev.props`   | Table   | `{}`    | Y        | Properties of the guest object           |
-| `sudo`        | Boolean |         | Y        | Start guest with `sudo`                  |
-| `extras`      | Array   | `[]`    | Y        | Extras to be added as-is to command line |
+| Name            | Type    | Default | Optional | Description                              |
+|-----------------|---------|---------|----------|------------------------------------------|
+| `cpu.model`     | String  | `host`  | Y        | CPU model                                |
+| `cpu.flags`     | Array   | `[]`    | Y        | CPU flags                                |
+| `smp`           | Integer |         | N        | CPU count                                |
+| `mem.size`      | Integer |         | N        | RAM size                                 |
+| `mem.unit`      | String  | `G`     | Y        | RAM size unit (`M` for MB or `G` for GB) |
+| `bios`          | String  |         | Y        | BIOS path                                |
+| `disk`          | String  |         | N        | Disk path                                |
+| `kernel`        | String  |         | Y        | Kernel path or URL (use PXE boot kernel) |
+| `initrd`        | String  |         | Y        | Initrd path or URL (use PXE boot initrd) |
+| `append`        | String  |         | Y        | Kernel command line                      |
+| `qemu`          | String  |         | Y        | QEMU path                                |
+| `sev.type`      | String  | `none`  | Y        | Guest type (`sev`, `es`, `snp`, `none`)  |
+| `sev.props`     | Table   | `{}`    | Y        | Properties of the guest object           |
+| `sudo`          | Boolean |         | Y        | Start guest with `sudo`                  |
+| `conn.vnc`      | Boolean | `false` | Y        | Enable VNC display                       |
+| `conn.port.vnc` | Integer | `5900`  | Y        | VNC port (`5900` or above)               |
+| `extras`        | Array   | `[]`    | Y        | Extras to be added as-is to command line |
 
 `sudo` defaults to `true` when `sev.type` is set and `false` otherwise.
 
@@ -120,6 +122,19 @@ sev.props.policy = 0xB0000
 
 `cbitpos` and `reduced-phys-bits` are read from the host, so they do not have
 to be set. Setting either one under `sev.props` overrides the host value.
+
+A guest can be given a display reachable over VNC. It listens on the local
+host only, and the serial console stays in the terminal.
+
+```
+[foo.mods.vnc]
+conn.vnc = true
+conn.port.vnc = 5903
+```
+
+```
+vncviewer localhost:5903
+```
 
 The defined guests can be listed, as can the mods of a guest along with the
 options each one overrides.

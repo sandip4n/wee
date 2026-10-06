@@ -50,6 +50,11 @@ wee__props = types.SimpleNamespace(
     kvm=types.SimpleNamespace(check_extension=0xAE03, cap_vm_types=235),
     mods=types.SimpleNamespace(width=64),
     edit=types.SimpleNamespace(editors=("editor", "vi")),
+    conn=types.SimpleNamespace(
+        host="127.0.0.1",
+        ports={"vnc": types.SimpleNamespace(default=5900, minimum=5900)},
+        vnc_base=5900,
+    ),
 )
 
 
@@ -349,6 +354,27 @@ def wee__args_sev(spec):
     ]
 
 
+def wee__args_conn_vnc(spec):
+    """Build the options that give the guest a remote display."""
+    conn = spec["conn"]
+    if not conn["vnc"]:
+        return ["-nographic"]
+
+    port = conn["port"]["vnc"]
+    wee__info("vnc on " + wee__props.conn.host + ":" + str(port))
+
+    return [
+        "-display",
+        "none",
+        "-vnc",
+        wee__props.conn.host + ":" + str(port - wee__props.conn.vnc_base),
+        "-device",
+        "qemu-xhci",
+        "-device",
+        "usb-tablet",
+    ]
+
+
 def wee__config_file():
     """Locate the guest definitions, creating the file if absent."""
     file = platformdirs.user_config_path("wee") / "guests.toml"
@@ -618,6 +644,69 @@ def wee__opts_extras(spec):
         sys.exit("error: config: 'extras' not valid")
 
 
+def wee__config_keys(table, name, known):
+    """Reject options that do not belong in a table."""
+    for key in table:
+        if key not in known:
+            sys.exit(
+                "error: config: '"
+                + name
+                + "."
+                + key
+                + "' unknown"
+                + wee__near(key, known)
+            )
+
+
+def wee__config_service(conn, svc):
+    """Settle whether a service is on and, if so, its host port."""
+    if svc not in conn:
+        conn[svc] = False
+    elif not isinstance(conn[svc], bool):
+        sys.exit("error: config: 'conn." + svc + "' not valid")
+
+    if not conn[svc]:
+        return
+
+    port = wee__props.conn.ports[svc]
+    value = conn["port"].setdefault(svc, port.default)
+    if isinstance(value, bool) or not isinstance(value, int):
+        sys.exit("error: config: 'conn.port." + svc + "' not valid")
+
+    if not port.minimum <= value <= 65535:
+        sys.exit(
+            "error: config: 'conn.port."
+            + svc
+            + "' must be between "
+            + str(port.minimum)
+            + " and 65535"
+        )
+
+
+def wee__opts_conn_vnc(spec):
+    """Settle whether the guest has a display reachable over VNC."""
+    wee__config_service(spec["conn"], "vnc")
+
+
+def wee__opts_conn(spec):
+    """Settle how the guest can be reached from the host."""
+    if "conn" not in spec:
+        spec["conn"] = {}
+    elif not isinstance(spec["conn"], dict):
+        sys.exit("error: config: 'conn' not valid")
+
+    conn = spec["conn"]
+    if "port" not in conn:
+        conn["port"] = {}
+    elif not isinstance(conn["port"], dict):
+        sys.exit("error: config: 'conn.port' not valid")
+
+    wee__config_keys(conn, "conn", tuple(wee__props.conn.ports) + ("port",))
+    wee__config_keys(conn["port"], "conn.port", tuple(wee__props.conn.ports))
+
+    wee__opts_conn_vnc(spec)
+
+
 def wee__config_read(name, mods=None, show=False):
     """Assemble and check the full settings of one guest."""
     data = wee__config_load()
@@ -641,6 +730,7 @@ def wee__config_read(name, mods=None, show=False):
     wee__opts_sev(spec)
     wee__opts_sudo(spec)
     wee__opts_extras(spec)
+    wee__opts_conn(spec)
 
     return spec
 
@@ -688,7 +778,7 @@ def wee__launch(name, mods, show=False):
             "nic,model=virtio",
             "-net",
             "user",
-            "-nographic",
+            *wee__args_conn_vnc(spec),
             "-serial",
             "mon:stdio",
         ]
